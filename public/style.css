@@ -231,7 +231,7 @@ footer {
 .course-card-sections { color: var(--muted); }
 
 /* ---- Course detail modal ---- */
-.modal.course-modal { width: 720px; max-width: 92vw; max-height: 85vh; overflow-y: auto; position: relative; padding-top: 20px; }
+.modal.course-modal { width: 960px; max-width: 94vw; max-height: 88vh; overflow-y: auto; position: relative; padding-top: 20px; }
 .modal-close {
   position: absolute; top: 14px; right: 16px; border: none; background: none; font-size: 1.4rem;
   line-height: 1; color: var(--muted); cursor: pointer; padding: 4px;
@@ -252,8 +252,21 @@ footer {
 #course-overview-body p { margin: 0 0 12px; line-height: 1.55; font-size: 0.92rem; }
 #course-overview-body p:last-child { margin-bottom: 0; }
 
-#course-sections-table td:nth-child(4), #course-sections-table th:nth-child(4) { white-space: normal; min-width: 170px; }
-#course-sections-table td:nth-child(5), #course-sections-table th:nth-child(5) { white-space: normal; min-width: 100px; }
+.section-cards {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px;
+}
+.section-card {
+  background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
+  padding: 16px; display: flex; flex-direction: column; gap: 10px;
+}
+.section-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.section-card-crn { font-weight: 700; font-size: 0.85rem; color: var(--muted); }
+.section-card-instructor { font-size: 1rem; font-weight: 700; line-height: 1.3; }
+.section-card-rating { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.section-card-links { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.8rem; }
+.section-card-row { font-size: 0.86rem; line-height: 1.45; color: var(--text); }
+.section-card-row .label { color: var(--muted); font-weight: 600; margin-right: 4px; }
+.section-card-bottom { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: auto; }
 
 .requirements-list { margin-bottom: 16px; display: flex; flex-direction: column; gap: 10px; }
 .requirement-item {

@@ -200,26 +200,37 @@ async function openCourseModal(college, subject, courseNumber) {
     ${data.transfer_credit ? `<p><strong>Transfer credit:</strong> ${data.transfer_credit}</p>` : ''}
   `;
 
-  const tbody = document.querySelector('#course-sections-table tbody');
-  tbody.innerHTML = '';
+  const grid = document.getElementById('section-cards');
+  grid.innerHTML = '';
   for (const s of data.sections) {
     const seats = s.cap != null ? `${s.act}/${s.cap}` : '—';
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td>${s.crn}</td>
-      <td>
-        ${s.instructor || '—'}<br>
-        ${s.instructor ? ratingHtml(s) + rateButton(s.instructor, s.college) : ''}
-      </td>
-      <td>${modalityBadge(s.modality)}</td>
-      <td>${s.meeting_info || ''}</td>
-      <td>${s.location || ''}</td>
-      <td>${seats}</td>
-      <td>${statusBadge(s.status)}</td>
+    const rmpUrl = s.instructor
+      ? `https://www.ratemyprofessors.com/search/professors?q=${encodeURIComponent(s.instructor)}`
+      : null;
+    const div = document.createElement('div');
+    div.className = 'section-card';
+    div.innerHTML = `
+      <div class="section-card-top">
+        <span class="section-card-crn">CRN ${s.crn}</span>
+        ${modalityBadge(s.modality)}
+      </div>
+      <div class="section-card-instructor">${s.instructor || '—'}</div>
+      ${s.instructor ? `
+        <div class="section-card-rating">${ratingHtml(s)} ${rateButton(s.instructor, s.college)}</div>
+        <div class="section-card-links">
+          <a class="rmp-link" href="${rmpUrl}" target="_blank" rel="noopener">Search on RateMyProfessor →</a>
+        </div>
+      ` : ''}
+      <div class="section-card-row"><span class="label">Meeting:</span>${s.meeting_info || '—'}</div>
+      <div class="section-card-row"><span class="label">Location:</span>${s.location || '—'}</div>
+      <div class="section-card-bottom">
+        <span class="section-card-row"><span class="label">Seats:</span>${seats}</span>
+        ${statusBadge(s.status)}
+      </div>
     `;
-    tbody.appendChild(tr);
+    grid.appendChild(div);
   }
-  wireRateButtons(tbody, () => openCourseModal(college, subject, courseNumber));
+  wireRateButtons(grid, () => openCourseModal(college, subject, courseNumber));
 
   renderRequirements(data.requirements);
 }
