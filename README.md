@@ -19,6 +19,10 @@ data from the district's own public schedule search system.
   "requirements" notes
 - Browse/search professors, with a native student rating system plus a link
   out to a RateMyProfessor search (no scraping of RMP content -- see note below)
+- A Planner tab to sketch out a multi-semester schedule: add classes to
+  semesters you create, see per-semester and total unit counts. Saved to
+  `localStorage` in your browser only -- there's no login system, so nothing
+  is stored server-side or shared between devices/browsers
 
 ## Data source
 

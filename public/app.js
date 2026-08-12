@@ -182,12 +182,16 @@ async function openCourseModal(college, subject, courseNumber) {
   document.getElementById('course-modal').classList.remove('hidden');
   document.getElementById('course-modal-title').textContent = `${subject} ${courseNumber}`;
   document.getElementById('course-modal-subtitle').textContent = 'Loading...';
+  closeAddToPlanMenu();
   switchCourseTab('overview');
 
   const data = await fetch(`/api/course/${encodeURIComponent(college)}/${encodeURIComponent(subject)}/${encodeURIComponent(courseNumber)}`).then((r) => r.json());
 
   document.getElementById('course-modal-title').textContent = `${data.subject} ${data.course_number} — ${data.title || ''}`;
   document.getElementById('course-modal-subtitle').textContent = `${COLLEGE_NAMES[data.college] || data.college} · ${data.term_desc || ''}`;
+
+  const units = data.sections.length ? Number(data.sections[0].credits) : null;
+  currentCourse = { college: data.college, subject: data.subject, course_number: data.course_number, title: data.title, units };
 
   const overviewEl = document.getElementById('course-overview-body');
   overviewEl.innerHTML = `
@@ -278,6 +282,162 @@ document.getElementById('requirement-submit').addEventListener('click', async ()
   runCourseSearch();
 });
 
+// ---- Planner (saved client-side in this browser only, via localStorage) ----
+const PLANNER_KEY = 'classfinder_planner_v1';
+
+function loadPlanner() {
+  try {
+    const raw = localStorage.getItem(PLANNER_KEY);
+    return raw ? JSON.parse(raw) : { terms: [] };
+  } catch (e) {
+    return { terms: [] };
+  }
+}
+
+function savePlanner(plan) {
+  localStorage.setItem(PLANNER_KEY, JSON.stringify(plan));
+}
+
+function addSemester(label) {
+  const plan = loadPlanner();
+  plan.terms.push({ id: `t${Date.now()}${Math.random().toString(36).slice(2, 6)}`, label, courses: [] });
+  savePlanner(plan);
+  renderPlanner();
+}
+
+function removeSemester(termId) {
+  const plan = loadPlanner();
+  plan.terms = plan.terms.filter((t) => t.id !== termId);
+  savePlanner(plan);
+  renderPlanner();
+}
+
+function renameSemester(termId, label) {
+  const plan = loadPlanner();
+  const term = plan.terms.find((t) => t.id === termId);
+  if (term) term.label = label || term.label;
+  savePlanner(plan);
+}
+
+function addCourseToTerm(termId, course) {
+  const plan = loadPlanner();
+  const term = plan.terms.find((t) => t.id === termId);
+  if (!term) return;
+  const exists = term.courses.some((c) => c.college === course.college && c.subject === course.subject && c.course_number === course.course_number);
+  if (!exists) term.courses.push(course);
+  savePlanner(plan);
+  renderPlanner();
+}
+
+function removeCourseFromTerm(termId, college, subject, courseNumber) {
+  const plan = loadPlanner();
+  const term = plan.terms.find((t) => t.id === termId);
+  if (!term) return;
+  term.courses = term.courses.filter((c) => !(c.college === college && c.subject === subject && c.course_number === courseNumber));
+  savePlanner(plan);
+  renderPlanner();
+}
+
+function renderPlanner() {
+  const plan = loadPlanner();
+  const container = document.getElementById('planner-terms');
+  const empty = document.getElementById('planner-empty');
+  container.innerHTML = '';
+  empty.classList.toggle('hidden', plan.terms.length > 0);
+
+  let totalUnits = 0;
+  for (const term of plan.terms) {
+    const termUnits = term.courses.reduce((sum, c) => sum + (Number(c.units) || 0), 0);
+    totalUnits += termUnits;
+
+    const div = document.createElement('div');
+    div.className = 'planner-term';
+    div.innerHTML = `
+      <div class="planner-term-top">
+        <input class="planner-term-title" value="${term.label.replace(/"/g, '&quot;')}" data-term="${term.id}" />
+        <button class="planner-term-remove" data-remove-term="${term.id}" aria-label="Remove semester">&times;</button>
+      </div>
+      <div class="planner-term-units">${termUnits} unit${termUnits === 1 ? '' : 's'}</div>
+      <div class="planner-course-list">
+        ${term.courses.length
+          ? term.courses.map((c) => `
+            <div class="planner-course-item">
+              <div class="planner-course-info">
+                <div class="planner-course-code">${c.subject} ${c.course_number} <span style="font-weight:400;color:var(--muted)">(${c.units ?? '—'} units)</span></div>
+                <div class="planner-course-title">${c.title || ''} · ${COLLEGE_NAMES[c.college] || c.college}</div>
+              </div>
+              <button class="planner-course-remove" data-remove-course="${term.id}|${c.college}|${c.subject}|${c.course_number}" aria-label="Remove class">&times;</button>
+            </div>
+          `).join('')
+          : '<div class="planner-term-empty">No classes added yet.</div>'
+        }
+      </div>
+    `;
+    container.appendChild(div);
+  }
+
+  document.getElementById('planner-total-units').textContent = plan.terms.length
+    ? `${totalUnits} total unit${totalUnits === 1 ? '' : 's'} planned`
+    : '';
+
+  container.querySelectorAll('.planner-term-title').forEach((input) => {
+    input.addEventListener('change', () => renameSemester(input.dataset.term, input.value.trim()));
+  });
+  container.querySelectorAll('[data-remove-term]').forEach((btn) => {
+    btn.addEventListener('click', () => removeSemester(btn.dataset.removeTerm));
+  });
+  container.querySelectorAll('[data-remove-course]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const [termId, college, subject, courseNumber] = btn.dataset.removeCourse.split('|');
+      removeCourseFromTerm(termId, college, subject, courseNumber);
+    });
+  });
+}
+
+document.getElementById('planner-add-semester').addEventListener('click', () => {
+  const plan = loadPlanner();
+  addSemester(`Semester ${plan.terms.length + 1}`);
+});
+
+function closeAddToPlanMenu() {
+  document.getElementById('add-to-plan-menu').classList.add('hidden');
+}
+
+document.getElementById('add-to-plan-btn').addEventListener('click', () => {
+  const menu = document.getElementById('add-to-plan-menu');
+  const opening = menu.classList.contains('hidden');
+  closeAddToPlanMenu();
+  if (!opening || !currentCourse) return;
+
+  const plan = loadPlanner();
+  const inTermIds = new Set(
+    plan.terms.filter((t) => t.courses.some((c) =>
+      c.college === currentCourse.college && c.subject === currentCourse.subject && c.course_number === currentCourse.course_number
+    )).map((t) => t.id)
+  );
+
+  menu.innerHTML = plan.terms.length
+    ? plan.terms.map((t) => `
+      <div class="add-to-plan-option" data-term="${t.id}">
+        <span>${t.label}</span>
+        ${inTermIds.has(t.id) ? '<span class="added-check">Added ✓</span>' : ''}
+      </div>
+    `).join('')
+    : '<div class="add-to-plan-empty">No semesters yet — go to the Planner tab to add one.</div>';
+
+  menu.querySelectorAll('.add-to-plan-option').forEach((opt) => {
+    opt.addEventListener('click', () => {
+      addCourseToTerm(opt.dataset.term, { ...currentCourse });
+      closeAddToPlanMenu();
+    });
+  });
+
+  menu.classList.remove('hidden');
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.add-to-plan')) closeAddToPlanMenu();
+});
+
 // ---- Rating modal (shared by classes and professors tabs) ----
 let selectedStars = 0;
 let rateContext = null;
@@ -353,4 +513,5 @@ document.getElementById('prof-college').addEventListener('change', runProfessorS
   await loadRequirements();
   await runCourseSearch();
   await runProfessorSearch();
+  renderPlanner();
 })();
