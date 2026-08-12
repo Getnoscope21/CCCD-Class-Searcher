@@ -64,6 +64,16 @@ CREATE TABLE IF NOT EXISTS course_requirements (
   created_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_course_requirements_course ON course_requirements(college, subject, course_number);
+
+CREATE TABLE IF NOT EXISTS course_ge_tags (
+  college TEXT NOT NULL,
+  term TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  course_number TEXT NOT NULL,
+  code TEXT NOT NULL,
+  PRIMARY KEY (college, term, subject, course_number, code)
+);
+CREATE INDEX IF NOT EXISTS idx_course_ge_tags_lookup ON course_ge_tags(term, code);
 `);
 
 module.exports = db;

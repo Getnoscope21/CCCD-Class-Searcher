@@ -10,7 +10,7 @@ const COLLEGES = {
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
-async function fetchCatalogHtml(college, term, termDesc) {
+async function fetchCatalogHtml(college, term, termDesc, attrib = '%') {
   const body = new URLSearchParams();
   body.append('TERM', term);
   body.append('TERM_DESC', termDesc);
@@ -32,7 +32,7 @@ async function fetchCatalogHtml(college, term, termDesc) {
   body.append('sel_ism', '%');
   body.append('sel_camp', '%');
   body.append('sel_instr', '%');
-  body.append('sel_attrib', '%');
+  body.append('sel_attrib', attrib);
   body.append('sel_sess', '%');
   body.append('begin_hh', '5');
   body.append('begin_mi', '0');
@@ -259,6 +259,43 @@ async function scrapeDescriptions(term, { delayMs = 250, onProgress } = {}) {
   return done;
 }
 
+// GE requirement tags: CCCD's search form supports filtering by "Attribute"
+// code (sel_attrib), so for each code we care about we re-run the search
+// filtered to just that code and record which courses came back. One request
+// per (college, code) -- ~11 codes x 3 colleges -- run only during the full
+// refresh, not the frequent light one, since it's not urgent/live data.
+async function scrapeGeTags(term, termDesc, { onProgress } = {}) {
+  const { ALL_GE_CODES } = require('./ge-requirements');
+  const upsert = db.prepare(`
+    INSERT OR IGNORE INTO course_ge_tags (college, term, subject, course_number, code) VALUES (?, ?, ?, ?, ?)
+  `);
+  db.prepare(`DELETE FROM course_ge_tags WHERE term = ?`).run(term);
+
+  let done = 0;
+  const total = ALL_GE_CODES.length * Object.keys(COLLEGES).length;
+  for (const college of Object.keys(COLLEGES)) {
+    for (const code of ALL_GE_CODES) {
+      try {
+        const html = await fetchCatalogHtml(college, term, termDesc, code);
+        const courses = parseCatalog(html, college, term, termDesc);
+        const seen = new Set();
+        for (const c of courses) {
+          const key = `${c.subject}|${c.course_number}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          upsert.run(college, term, c.subject, c.course_number, code);
+        }
+      } catch (e) {
+        console.error(`GE tag fetch failed for ${college} ${code}: ${e.message}`);
+      }
+      done++;
+      if (onProgress) onProgress(done, total);
+      await sleep(200);
+    }
+  }
+  return done;
+}
+
 async function scrapeCollege(college, term, termDesc) {
   const html = await fetchCatalogHtml(college, term, termDesc);
   const courses = parseCatalog(html, college, term, termDesc);
@@ -309,6 +346,14 @@ async function main() {
       },
     });
     console.log(`Done. ${n} course descriptions fetched/updated.`);
+
+    console.log('Fetching GE requirement tags...');
+    const g = await scrapeGeTags(term, termDesc, {
+      onProgress: (done, of) => {
+        if (done % 10 === 0 || done === of) console.log(`  GE tags: ${done}/${of}`);
+      },
+    });
+    console.log(`Done. ${g} (college, code) requests processed.`);
   }
 }
 
@@ -316,4 +361,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { scrapeCollege, parseCatalog, scrapeDescriptions, parseCoursePopup, COLLEGES };
+module.exports = { scrapeCollege, parseCatalog, scrapeDescriptions, scrapeGeTags, parseCoursePopup, COLLEGES };

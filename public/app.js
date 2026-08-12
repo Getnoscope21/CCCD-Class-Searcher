@@ -12,19 +12,15 @@ async function loadColleges() {
   }
 }
 
-async function loadSubjects() {
-  const college = document.getElementById('college').value;
-  const subjects = await fetch(`/api/subjects?college=${encodeURIComponent(college)}`).then((r) => r.json());
-  const sel = document.getElementById('subject');
-  const current = sel.value;
-  sel.innerHTML = '<option value="">All Subjects</option>';
-  for (const s of subjects) {
+async function loadRequirements() {
+  const requirements = await fetch('/api/ge-requirements').then((r) => r.json());
+  const sel = document.getElementById('requirement');
+  for (const r of requirements) {
     const opt = document.createElement('option');
-    opt.value = s;
-    opt.textContent = s;
+    opt.value = r.key;
+    opt.textContent = r.label;
     sel.appendChild(opt);
   }
-  sel.value = current;
 }
 
 function statusBadge(status) {
@@ -94,7 +90,7 @@ async function runCourseSearch() {
   const params = new URLSearchParams();
   const q = document.getElementById('q').value.trim();
   const college = document.getElementById('college').value;
-  const subject = document.getElementById('subject').value;
+  const requirement = document.getElementById('requirement').value;
   const modality = document.getElementById('modality').value;
   const sort = document.getElementById('sort').value;
   const unitsMin = Number(unitsMinEl.value);
@@ -104,7 +100,7 @@ async function runCourseSearch() {
 
   if (q) params.set('q', q);
   if (college) params.set('college', college);
-  if (subject) params.set('subject', subject);
+  if (requirement) params.set('requirement', requirement);
   if (modality) params.set('modality', modality);
   if (sort) params.set('sort', sort);
   if (unitsMin > 0) params.set('units_min', unitsMin);
@@ -343,8 +339,8 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 });
 
 document.getElementById('q').addEventListener('input', debounceSearch);
-document.getElementById('college').addEventListener('change', () => { loadSubjects(); runCourseSearch(); });
-document.getElementById('subject').addEventListener('change', runCourseSearch);
+document.getElementById('college').addEventListener('change', runCourseSearch);
+document.getElementById('requirement').addEventListener('change', runCourseSearch);
 document.getElementById('modality').addEventListener('change', runCourseSearch);
 document.getElementById('sort').addEventListener('change', runCourseSearch);
 document.querySelectorAll('.status-cb').forEach((cb) => cb.addEventListener('change', runCourseSearch));
@@ -353,7 +349,7 @@ document.getElementById('prof-college').addEventListener('change', runProfessorS
 
 (async function init() {
   await loadColleges();
-  await loadSubjects();
+  await loadRequirements();
   await runCourseSearch();
   await runProfessorSearch();
 })();

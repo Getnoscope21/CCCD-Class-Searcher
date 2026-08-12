@@ -12,7 +12,7 @@
 <body>
 <header>
   <h1>Coast Colleges Class Finder</h1>
-  <p class="subtitle">Golden West &middot; Orange Coast &middot; Coastline &mdash; search classes and professors in one place</p>
+  <p class="subtitle">Golden West &middot; Orange Coast &middot; Coastline</p>
 </header>
 
 <main>
@@ -22,21 +22,35 @@
   </div>
 
   <section id="classes-tab" class="tab-panel active">
-    <div class="filters">
-      <input id="q" type="text" placeholder="Search course, title, CRN, or instructor..." />
-      <select id="college"><option value="">All Colleges</option></select>
-      <select id="subject"><option value="">All Subjects</option></select>
-      <select id="modality">
-        <option value="">Any Modality</option>
-        <option value="In-Person">In-Person</option>
-        <option value="Online">Online</option>
-        <option value="Live Online">Live Online</option>
-        <option value="TBA">TBA</option>
-      </select>
-    </div>
-
     <div class="classes-layout">
       <aside class="sidebar">
+        <h3 class="sidebar-title">Filters</h3>
+
+        <div class="sidebar-block">
+          <input id="q" type="text" placeholder="Search course, title, CRN, or instructor..." />
+        </div>
+
+        <div class="sidebar-block">
+          <h4>College</h4>
+          <select id="college"><option value="">All Colleges</option></select>
+        </div>
+
+        <div class="sidebar-block">
+          <h4>Requirement</h4>
+          <select id="requirement"><option value="">Any Requirement</option></select>
+        </div>
+
+        <div class="sidebar-block">
+          <h4>Modality</h4>
+          <select id="modality">
+            <option value="">Any Modality</option>
+            <option value="In-Person">In-Person</option>
+            <option value="Online">Online</option>
+            <option value="Live Online">Live Online</option>
+            <option value="TBA">TBA</option>
+          </select>
+        </div>
+
         <div class="sidebar-block">
           <h4>Units</h4>
           <div class="unit-slider" id="unit-slider">

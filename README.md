@@ -6,9 +6,14 @@ data from the district's own public schedule search system.
 
 ## What it does
 
-- Browse classes as course cards (grouped by subject + number), with a sidebar
-  to filter by units, enrollment status, college, subject, and modality, and
-  sort by relevance, units, rating, seats, requirements, semester, or time
+- Browse classes as course cards (grouped by subject + number), with a single
+  filter panel for search, college, GE requirement area, modality, units, and
+  enrollment status, and sort by relevance, units, rating, seats, requirements,
+  semester, or time
+- Filter by actual General Education requirement area (English Composition,
+  Arts, Social & Behavioral Sciences, etc.) -- sourced from CCCD's own course
+  attribute data (the same CALGETC/IGETC codes their own search form uses),
+  not guessed from subject/title
 - Click a course card for its real catalog description, corequisites, every
   section (CRN/instructor/meeting time/seats/status), and user-submitted
   "requirements" notes
@@ -39,6 +44,12 @@ Course data (seats, status, open/closed) changes throughout registration.
 Re-run `node scraper.js <term> "<term desc>"` on a schedule (e.g. a cron job
 every few hours) to keep it current. Term codes come from the college's own
 "Class Schedule" page dropdown (format: YYYYNN, e.g. `202670` = Fall 2026).
+
+A full run (without `--skip-descriptions`) also re-fetches course descriptions
+and GE requirement tags -- the latter works by re-querying CCCD's search with
+each GE "Attribute" code (`sel_attrib`) and recording which courses match, so
+it's ~11 extra requests per college. Both are slow-changing catalog data, not
+live seat counts, so there's no need to run this as often as the light refresh.
 
 ## Deploying publicly
 

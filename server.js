@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const db = require('./db');
 const { COLLEGES } = require('./scraper');
+const { REQUIREMENT_CATEGORIES } = require('./ge-requirements');
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
@@ -121,8 +122,12 @@ app.get('/api/search', (req, res) => {
   res.json(rows.map((r) => attachRating(r, ratingsMap)));
 });
 
+app.get('/api/ge-requirements', (req, res) => {
+  res.json(REQUIREMENT_CATEGORIES.map(({ key, label }) => ({ key, label })));
+});
+
 app.get('/api/course-cards', (req, res) => {
-  const { q, college, subject, modality, statuses, units_min, units_max, sort } = req.query;
+  const { q, college, subject, modality, statuses, units_min, units_max, sort, requirement } = req.query;
   const term = req.query.term || defaultTerm();
   if (!term) return res.json([]);
 
@@ -149,7 +154,20 @@ app.get('/api/course-cards', (req, res) => {
   if (unitsMin !== null) { sql += ` AND CAST(credits AS REAL) >= ?`; params.push(unitsMin); }
   if (unitsMax !== null) { sql += ` AND CAST(credits AS REAL) <= ?`; params.push(unitsMax); }
 
-  const rows = db.prepare(sql).all(...params);
+  let rows = db.prepare(sql).all(...params);
+
+  if (requirement) {
+    const category = REQUIREMENT_CATEGORIES.find((c) => c.key === requirement);
+    if (category) {
+      const tagRows = db.prepare(
+        `SELECT DISTINCT college, subject, course_number FROM course_ge_tags
+         WHERE term = ? AND code IN (${category.codes.map(() => '?').join(',')})`
+      ).all(term, ...category.codes);
+      const allowed = new Set(tagRows.map((t) => `${t.college}|${t.subject}|${t.course_number}`));
+      rows = rows.filter((r) => allowed.has(`${r.college}|${r.subject}|${r.course_number}`));
+    }
+  }
+
   const ratingsMap = ratingsSummary();
   const catalog = catalogMap(term);
   const reqCounts = requirementCounts();
