@@ -3,6 +3,7 @@ const path = require('path');
 const db = require('./db');
 const { COLLEGES } = require('./scraper');
 const { REQUIREMENT_CATEGORIES } = require('./ge-requirements');
+const { assistTransferabilityUrl } = require('./assist-links');
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
@@ -274,6 +275,7 @@ app.get('/api/course/:college/:subject/:number', (req, res) => {
     description: cat ? cat.description : null,
     corequisites: cat ? cat.corequisites : null,
     transfer_credit: cat ? cat.transfer_credit : null,
+    assist_url: assistTransferabilityUrl(college),
     sections: sections.map((s) => ({ ...attachRating({ ...s, modality: modalityOf(s.location) }, ratingsMap) })),
     requirements,
   });

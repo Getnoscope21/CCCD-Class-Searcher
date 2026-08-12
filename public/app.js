@@ -194,6 +194,7 @@ async function openCourseModal(college, subject, courseNumber) {
     ${data.description ? `<p>${data.description}</p>` : '<p class="no-rating">No description available.</p>'}
     ${data.corequisites ? `<p><strong>Corequisites:</strong> ${data.corequisites}</p>` : ''}
     ${data.transfer_credit ? `<p><strong>Transfer credit:</strong> ${data.transfer_credit}</p>` : ''}
+    ${data.assist_url ? `<p><a class="rmp-link" href="${data.assist_url}" target="_blank" rel="noopener">See what ${COLLEGE_NAMES[data.college] || data.college} courses transfer as on ASSIST.org →</a></p>` : ''}
   `;
 
   const grid = document.getElementById('section-cards');
