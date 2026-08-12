@@ -175,6 +175,90 @@ function parseCatalog(html, college, term, termDesc) {
   return courses;
 }
 
+function decodeEntities(s) {
+  return s
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"');
+}
+
+function stripTags(s) {
+  return decodeEntities(s.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+}
+
+function parseCoursePopup(html) {
+  let description = null;
+  let transferCredit = null;
+  let corequisites = null;
+
+  const descMatch = html.match(/Course Description:<br>([\s\S]*?)<p>\s*<td/i);
+  if (descMatch) {
+    let raw = descMatch[1];
+    const tcMatch = raw.match(/Transfer Credit:\s*([^\n<]*)/i);
+    if (tcMatch) {
+      transferCredit = stripTags(tcMatch[1]);
+      raw = raw.replace(tcMatch[0], '');
+    }
+    description = stripTags(raw) || null;
+  }
+
+  const coreqMatch = html.match(/Corequisites:\s*([^<\r\n]*)/i);
+  if (coreqMatch) corequisites = stripTags(coreqMatch[1]) || null;
+
+  return { description, transferCredit, corequisites };
+}
+
+async function fetchCoursePopup(college, subject, courseNumber, term, crn) {
+  const url =
+    `https://ssb-prod.ec.cccd.edu/PROD/pw_pub_sched.p_course_popup?vsub=${encodeURIComponent(subject)}` +
+    `&vcrse=${encodeURIComponent(courseNumber)}&vterm=${encodeURIComponent(term)}&vcrn=${encodeURIComponent(crn)}&vcoll=${encodeURIComponent(college)}`;
+  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+  const html = await res.text();
+  return parseCoursePopup(html);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Descriptions are per-course, not per-section, so we fetch one representative
+// CRN per (college, subject, course_number) rather than every section -- keeps
+// this to a few hundred requests instead of one per section, and we sleep
+// between each to stay polite to CCCD's server (same spirit as the main scrape).
+async function scrapeDescriptions(term, { delayMs = 250, onProgress } = {}) {
+  const courses = db.prepare(`
+    SELECT college, subject, course_number, MIN(crn) as crn
+    FROM courses WHERE term = ?
+    GROUP BY college, subject, course_number
+  `).all(term);
+
+  const upsert = db.prepare(`
+    INSERT INTO course_catalog (college, term, subject, course_number, description, corequisites, transfer_credit, updated_at)
+    VALUES (@college, @term, @subject, @course_number, @description, @corequisites, @transfer_credit, datetime('now'))
+    ON CONFLICT(college, term, subject, course_number) DO UPDATE SET
+      description=excluded.description, corequisites=excluded.corequisites,
+      transfer_credit=excluded.transfer_credit, updated_at=excluded.updated_at
+  `);
+
+  let done = 0;
+  for (const c of courses) {
+    try {
+      const info = await fetchCoursePopup(c.college, c.subject, c.course_number, term, c.crn);
+      upsert.run({
+        college: c.college, term, subject: c.subject, course_number: c.course_number,
+        description: info.description, corequisites: info.corequisites, transfer_credit: info.transferCredit,
+      });
+    } catch (e) {
+      console.error(`Description fetch failed for ${c.college} ${c.subject} ${c.course_number}: ${e.message}`);
+    }
+    done++;
+    if (onProgress) onProgress(done, courses.length);
+    await sleep(delayMs);
+  }
+  return done;
+}
+
 async function scrapeCollege(college, term, termDesc) {
   const html = await fetchCatalogHtml(college, term, termDesc);
   const courses = parseCatalog(html, college, term, termDesc);
@@ -206,6 +290,7 @@ async function scrapeCollege(college, term, termDesc) {
 async function main() {
   const term = process.argv[2] || '202670';
   const termDesc = process.argv[3] || 'Fall 2026';
+  const skipDescriptions = process.argv.includes('--skip-descriptions');
   let total = 0;
   for (const college of Object.keys(COLLEGES)) {
     try {
@@ -215,10 +300,20 @@ async function main() {
     }
   }
   console.log(`Done. ${total} total sections stored for ${termDesc}.`);
+
+  if (!skipDescriptions) {
+    console.log('Fetching course descriptions (one request per unique course, politely paced)...');
+    const n = await scrapeDescriptions(term, {
+      onProgress: (done, of) => {
+        if (done % 50 === 0 || done === of) console.log(`  descriptions: ${done}/${of}`);
+      },
+    });
+    console.log(`Done. ${n} course descriptions fetched/updated.`);
+  }
 }
 
 if (require.main === module) {
   main();
 }
 
-module.exports = { scrapeCollege, parseCatalog, COLLEGES };
+module.exports = { scrapeCollege, parseCatalog, scrapeDescriptions, parseCoursePopup, COLLEGES };

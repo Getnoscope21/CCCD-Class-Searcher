@@ -1,0 +1,14 @@
+name: Refresh live class data
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping refresh endpoint
+        run: |
+          curl -fsS "${{ secrets.SITE_URL }}/api/admin/refresh?token=${{ secrets.REFRESH_TOKEN }}"

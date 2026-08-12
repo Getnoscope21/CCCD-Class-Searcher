@@ -41,6 +41,29 @@ CREATE TABLE IF NOT EXISTS ratings (
   created_at TEXT DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_ratings_instructor ON ratings(instructor, college);
+
+CREATE TABLE IF NOT EXISTS course_catalog (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  college TEXT NOT NULL,
+  term TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  course_number TEXT NOT NULL,
+  description TEXT,
+  corequisites TEXT,
+  transfer_credit TEXT,
+  updated_at TEXT,
+  UNIQUE(college, term, subject, course_number)
+);
+
+CREATE TABLE IF NOT EXISTS course_requirements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  college TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  course_number TEXT NOT NULL,
+  requirement_text TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_course_requirements_course ON course_requirements(college, subject, course_number);
 `);
 
 module.exports = db;

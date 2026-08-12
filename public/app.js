@@ -62,75 +62,91 @@ function wireRateButtons(container, onRated) {
 let searchTimer = null;
 function debounceSearch() {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(runSearch, 250);
+  searchTimer = setTimeout(runCourseSearch, 250);
 }
 
-async function runSearch() {
+// ---- Units dual-range slider ----
+const unitsMinEl = document.getElementById('units-min');
+const unitsMaxEl = document.getElementById('units-max');
+const unitsMinLabel = document.getElementById('units-min-label');
+const unitsMaxLabel = document.getElementById('units-max-label');
+const unitsRangeBar = document.getElementById('unit-slider-range');
+const SLIDER_MAX = 5;
+
+function renderUnitSlider() {
+  let lo = Number(unitsMinEl.value);
+  let hi = Number(unitsMaxEl.value);
+  if (lo > hi) { [lo, hi] = [hi, lo]; unitsMinEl.value = lo; unitsMaxEl.value = hi; }
+  unitsMinLabel.textContent = lo;
+  unitsMaxLabel.textContent = hi >= SLIDER_MAX ? `${SLIDER_MAX}+` : hi;
+  const loPct = (lo / SLIDER_MAX) * 100;
+  const hiPct = (hi / SLIDER_MAX) * 100;
+  unitsRangeBar.style.left = `${loPct}%`;
+  unitsRangeBar.style.right = `${100 - hiPct}%`;
+}
+
+[unitsMinEl, unitsMaxEl].forEach((el) => {
+  el.addEventListener('input', () => { renderUnitSlider(); debounceSearch(); });
+});
+renderUnitSlider();
+
+async function runCourseSearch() {
   const params = new URLSearchParams();
   const q = document.getElementById('q').value.trim();
   const college = document.getElementById('college').value;
   const subject = document.getElementById('subject').value;
   const modality = document.getElementById('modality').value;
-  const openOnly = document.getElementById('open_only').checked;
+  const sort = document.getElementById('sort').value;
+  const unitsMin = Number(unitsMinEl.value);
+  const unitsMax = Number(unitsMaxEl.value);
+  const checkedStatuses = [...document.querySelectorAll('.status-cb:checked')].map((cb) => cb.value);
+  const allStatuses = document.querySelectorAll('.status-cb').length;
+
   if (q) params.set('q', q);
   if (college) params.set('college', college);
   if (subject) params.set('subject', subject);
   if (modality) params.set('modality', modality);
-  if (openOnly) params.set('open_only', 'true');
+  if (sort) params.set('sort', sort);
+  if (unitsMin > 0) params.set('units_min', unitsMin);
+  if (unitsMax < SLIDER_MAX) params.set('units_max', unitsMax);
+  if (checkedStatuses.length < allStatuses) params.set('statuses', checkedStatuses.join(','));
 
   const countEl = document.getElementById('classes-count');
-  const openAllBtn = document.getElementById('open-all-rmp');
   countEl.textContent = 'Searching...';
-  openAllBtn.style.display = 'none';
 
-  const rows = await fetch('/api/search?' + params.toString()).then((r) => r.json());
-  const tbody = document.querySelector('#classes-table tbody');
-  tbody.innerHTML = '';
+  const cards = await fetch('/api/course-cards?' + params.toString()).then((r) => r.json());
+  const grid = document.getElementById('course-cards');
+  grid.innerHTML = '';
 
-  for (const c of rows) {
-    const tr = document.createElement('tr');
-    const seats = c.cap != null ? `${c.act}/${c.cap}` : '—';
-    tr.innerHTML = `
-      <td>${COLLEGE_NAMES[c.college] || c.college}</td>
-      <td>${c.subject} ${c.course_number}</td>
-      <td class="title-cell">${c.title || ''}</td>
-      <td>${c.crn}</td>
-      <td>
-        <a class="instructor-link" data-name="${encodeURIComponent(c.instructor)}">${c.instructor || '—'}</a><br>
-        ${c.instructor ? ratingHtml(c) + rateButton(c.instructor, c.college) : ''}
-      </td>
-      <td>${modalityBadge(c.modality)}</td>
-      <td>${c.meeting_info || ''}</td>
-      <td>${c.location || ''}</td>
-      <td>${seats}</td>
-      <td>${statusBadge(c.status)}</td>
+  for (const c of cards) {
+    const div = document.createElement('div');
+    div.className = 'course-card';
+    const units = c.units_min === c.units_max ? `${c.units_min}` : `${c.units_min}–${c.units_max}`;
+    const seatsChip = c.seats_available > 0
+      ? `<span class="badge open">${c.seats_available} seat${c.seats_available === 1 ? '' : 's'} open</span>`
+      : `<span class="badge closed">Full</span>`;
+    div.innerHTML = `
+      <div class="course-card-top">
+        <span class="course-card-code">${c.subject} ${c.course_number}</span>
+        <span class="badge">${units} unit${c.units_max === 1 ? '' : 's'}</span>
+      </div>
+      <div class="course-card-title">${c.title || ''}</div>
+      <div class="course-card-college">${COLLEGE_NAMES[c.college] || c.college}</div>
+      ${c.description ? `<p class="course-card-desc">${c.description}</p>` : ''}
+      <div class="course-card-bottom">
+        ${ratingHtml(c)}
+        <span class="course-card-sections">${c.section_count} section${c.section_count === 1 ? '' : 's'}</span>
+      </div>
+      <div class="course-card-bottom">
+        ${seatsChip}
+        ${c.requirement_count ? `<span class="badge modality-in-person">${c.requirement_count} requirement${c.requirement_count === 1 ? '' : 's'}</span>` : ''}
+      </div>
     `;
-    tbody.appendChild(tr);
+    div.addEventListener('click', () => openCourseModal(c.college, c.subject, c.course_number));
+    grid.appendChild(div);
   }
 
-  countEl.textContent = `${rows.length} section${rows.length === 1 ? '' : 's'}${rows.length === 500 ? ' (showing first 500 — narrow your search)' : ''}`;
-
-  tbody.querySelectorAll('.instructor-link').forEach((link) => {
-    link.addEventListener('click', () => {
-      switchTab('professors');
-      document.getElementById('prof-q').value = decodeURIComponent(link.dataset.name);
-      runProfessorSearch();
-    });
-  });
-  wireRateButtons(tbody, runSearch);
-
-  const uniqueInstructors = [...new Set(rows.map((r) => r.instructor).filter(Boolean).filter((n) => n !== 'Staff'))];
-  if (uniqueInstructors.length > 0 && uniqueInstructors.length <= 15) {
-    openAllBtn.style.display = '';
-    openAllBtn.textContent = `Open RateMyProfessor for all ${uniqueInstructors.length} professor${uniqueInstructors.length === 1 ? '' : 's'} shown →`;
-    openAllBtn.onclick = () => {
-      for (const name of uniqueInstructors) {
-        window.open(`https://www.ratemyprofessors.com/search/professors?q=${encodeURIComponent(name)}`, '_blank');
-      }
-    };
-  } else {
-    openAllBtn.style.display = 'none';
-  }
+  countEl.textContent = `${cards.length} course${cards.length === 1 ? '' : 's'}${cards.length === 300 ? ' (showing first 300 — narrow your search)' : ''}`;
 }
 
 async function runProfessorSearch() {
@@ -162,6 +178,99 @@ async function runProfessorSearch() {
   wireRateButtons(tbody, runProfessorSearch);
 }
 
+// ---- Course detail modal ----
+let currentCourse = null;
+
+async function openCourseModal(college, subject, courseNumber) {
+  currentCourse = { college, subject, course_number: courseNumber };
+  document.getElementById('course-modal').classList.remove('hidden');
+  document.getElementById('course-modal-title').textContent = `${subject} ${courseNumber}`;
+  document.getElementById('course-modal-subtitle').textContent = 'Loading...';
+  switchCourseTab('overview');
+
+  const data = await fetch(`/api/course/${encodeURIComponent(college)}/${encodeURIComponent(subject)}/${encodeURIComponent(courseNumber)}`).then((r) => r.json());
+
+  document.getElementById('course-modal-title').textContent = `${data.subject} ${data.course_number} — ${data.title || ''}`;
+  document.getElementById('course-modal-subtitle').textContent = `${COLLEGE_NAMES[data.college] || data.college} · ${data.term_desc || ''}`;
+
+  const overviewEl = document.getElementById('course-overview-body');
+  overviewEl.innerHTML = `
+    ${data.description ? `<p>${data.description}</p>` : '<p class="no-rating">No description available.</p>'}
+    ${data.corequisites ? `<p><strong>Corequisites:</strong> ${data.corequisites}</p>` : ''}
+    ${data.transfer_credit ? `<p><strong>Transfer credit:</strong> ${data.transfer_credit}</p>` : ''}
+  `;
+
+  const tbody = document.querySelector('#course-sections-table tbody');
+  tbody.innerHTML = '';
+  for (const s of data.sections) {
+    const seats = s.cap != null ? `${s.act}/${s.cap}` : '—';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${s.crn}</td>
+      <td>
+        ${s.instructor || '—'}<br>
+        ${s.instructor ? ratingHtml(s) + rateButton(s.instructor, s.college) : ''}
+      </td>
+      <td>${modalityBadge(s.modality)}</td>
+      <td>${s.meeting_info || ''}</td>
+      <td>${s.location || ''}</td>
+      <td>${seats}</td>
+      <td>${statusBadge(s.status)}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  wireRateButtons(tbody, () => openCourseModal(college, subject, courseNumber));
+
+  renderRequirements(data.requirements);
+}
+
+function renderRequirements(requirements) {
+  const list = document.getElementById('course-requirements-list');
+  if (!requirements.length) {
+    list.innerHTML = '<p class="no-rating">No requirements submitted yet — be the first.</p>';
+    return;
+  }
+  list.innerHTML = requirements.map((r) => `
+    <div class="requirement-item">
+      <p>${r.requirement_text}</p>
+      <span class="requirement-date">${new Date(r.created_at + 'Z').toLocaleDateString()}</span>
+    </div>
+  `).join('');
+}
+
+function closeCourseModal() {
+  document.getElementById('course-modal').classList.add('hidden');
+  currentCourse = null;
+}
+
+function switchCourseTab(name) {
+  document.querySelectorAll('.course-tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.ctab === name));
+  document.querySelectorAll('.course-tab-panel').forEach((p) => p.classList.toggle('active', p.id === `course-tab-${name}`));
+}
+
+document.querySelectorAll('.course-tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => switchCourseTab(btn.dataset.ctab));
+});
+document.getElementById('course-modal-close').addEventListener('click', closeCourseModal);
+document.getElementById('course-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'course-modal') closeCourseModal();
+});
+document.getElementById('requirement-submit').addEventListener('click', async () => {
+  if (!currentCourse) return;
+  const textEl = document.getElementById('requirement-text');
+  const text = textEl.value.trim();
+  if (!text) return;
+  const res = await fetch('/api/course-requirements', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...currentCourse, text }),
+  }).then((r) => r.json());
+  textEl.value = '';
+  renderRequirements(res.requirements);
+  runCourseSearch();
+});
+
+// ---- Rating modal (shared by classes and professors tabs) ----
 let selectedStars = 0;
 let rateContext = null;
 
@@ -223,16 +332,17 @@ document.querySelectorAll('.tab-btn').forEach((btn) => {
 });
 
 document.getElementById('q').addEventListener('input', debounceSearch);
-document.getElementById('college').addEventListener('change', () => { loadSubjects(); runSearch(); });
-document.getElementById('subject').addEventListener('change', runSearch);
-document.getElementById('modality').addEventListener('change', runSearch);
-document.getElementById('open_only').addEventListener('change', runSearch);
+document.getElementById('college').addEventListener('change', () => { loadSubjects(); runCourseSearch(); });
+document.getElementById('subject').addEventListener('change', runCourseSearch);
+document.getElementById('modality').addEventListener('change', runCourseSearch);
+document.getElementById('sort').addEventListener('change', runCourseSearch);
+document.querySelectorAll('.status-cb').forEach((cb) => cb.addEventListener('change', runCourseSearch));
 document.getElementById('prof-q').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(runProfessorSearch, 250); });
 document.getElementById('prof-college').addEventListener('change', runProfessorSearch);
 
 (async function init() {
   await loadColleges();
   await loadSubjects();
-  await runSearch();
+  await runCourseSearch();
   await runProfessorSearch();
 })();

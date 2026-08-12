@@ -6,10 +6,14 @@ data from the district's own public schedule search system.
 
 ## What it does
 
-- Search classes by subject, course number, title, CRN, or instructor across all three colleges
-- Filter by college, subject, open-only
-- Browse/search professors, with each linking out to a RateMyProfessor search
-  (no scraping of RMP content -- see note below)
+- Browse classes as course cards (grouped by subject + number), with a sidebar
+  to filter by units, enrollment status, college, subject, and modality, and
+  sort by relevance, units, rating, seats, requirements, semester, or time
+- Click a course card for its real catalog description, corequisites, every
+  section (CRN/instructor/meeting time/seats/status), and user-submitted
+  "requirements" notes
+- Browse/search professors, with a native student rating system plus a link
+  out to a RateMyProfessor search (no scraping of RMP content -- see note below)
 
 ## Data source
 
@@ -50,6 +54,45 @@ Before making this public, worth doing:
   refresh -- one per college -- so this is low-risk as-is)
 - Double check GWC/OCC/Coastline don't have a specific policy against
   third-party tools built on their public schedule data before going public
+
+### Free hosting on Render + GitHub Actions
+
+`data.db` is committed to the repo pre-seeded with course data and
+descriptions, so a fresh deploy has real content immediately -- no
+1,800-request description scrape needed on every cold start.
+
+1. **Render** (render.com): New → Web Service → connect this GitHub repo.
+   - Build command: `npm install`
+   - Start command: `node server.js`
+   - Plan: Free
+   - Add an environment variable `REFRESH_TOKEN` set to a long random string
+     (this guards the `/api/admin/refresh` endpoint from public abuse)
+   - Deploy. You'll get a public URL like `https://your-app.onrender.com`.
+
+   Free-tier caveat: the service spins down after 15 minutes idle and has no
+   persistent disk, so any writes (new ratings, requirements, refreshed
+   seat counts) since the last restart are lost when it spins down. The
+   GitHub Actions job below both keeps it refreshed *and* keeps it awake
+   (a ping within the 15-minute window prevents spin-down), so in practice
+   it stays warm and current as long as the schedule keeps firing.
+
+2. **GitHub Actions** (already set up in `.github/workflows/refresh.yml`,
+   runs every 10 minutes): add two repo secrets at
+   Settings → Secrets and variables → Actions:
+   - `SITE_URL` — your Render URL, no trailing slash (e.g. `https://your-app.onrender.com`)
+   - `REFRESH_TOKEN` — the same value you set on Render
+
+   This pings `/api/admin/refresh`, which re-scrapes seats/status only
+   (3 requests, a few seconds) -- not descriptions, which rarely change and
+   already shipped in the seed `data.db`. GitHub disables scheduled workflows
+   after 60 days with no commits to the repo, so an occasional push keeps it
+   alive long-term.
+
+For always-on hosting without these tradeoffs (no cold starts, no data loss,
+reuses the exact same cron approach used locally), a small VPS (~$5-6/month)
+is the simpler and more reliable option -- just `git clone`, `npm install`,
+`crontab` the same refresh commands from the section above, and run the
+server behind a process manager like `pm2` or a systemd unit.
 
 ## On professor ratings
 

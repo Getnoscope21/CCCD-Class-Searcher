@@ -33,22 +33,53 @@
         <option value="Live Online">Live Online</option>
         <option value="TBA">TBA</option>
       </select>
-      <label class="checkbox"><input type="checkbox" id="open_only" /> Open sections only</label>
     </div>
-    <div id="classes-status" class="status">
-      <span id="classes-count"></span>
-      <button id="open-all-rmp" class="rate-btn" style="display:none">Open RateMyProfessor for all professors shown →</button>
-    </div>
-    <div class="table-wrap">
-      <table id="classes-table">
-        <thead>
-          <tr>
-            <th>College</th><th>Course</th><th>Title</th><th>CRN</th>
-            <th>Instructor</th><th>Modality</th><th>Meeting</th><th>Location</th><th>Seats</th><th>Status</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+
+    <div class="classes-layout">
+      <aside class="sidebar">
+        <div class="sidebar-block">
+          <h4>Units</h4>
+          <div class="unit-slider" id="unit-slider">
+            <div class="unit-slider-track"></div>
+            <div class="unit-slider-range" id="unit-slider-range"></div>
+            <input type="range" id="units-min" min="0" max="5" step="0.5" value="0" />
+            <input type="range" id="units-max" min="0" max="5" step="0.5" value="5" />
+          </div>
+          <div class="unit-slider-labels">
+            <span id="units-min-label">0</span>
+            <span>&ndash;</span>
+            <span id="units-max-label">5+</span>
+            <span>units</span>
+          </div>
+        </div>
+
+        <div class="sidebar-block">
+          <h4>Enrollment status</h4>
+          <label class="checkbox"><input type="checkbox" class="status-cb" value="OPEN" checked /> Open</label>
+          <label class="checkbox"><input type="checkbox" class="status-cb" value="Waitlisted" checked /> Waitlisted</label>
+          <label class="checkbox"><input type="checkbox" class="status-cb" value="CLOSED" checked /> Closed</label>
+        </div>
+
+        <div class="sidebar-block">
+          <h4>Sort by</h4>
+          <select id="sort">
+            <option value="relevance">Relevance</option>
+            <option value="units">Units</option>
+            <option value="rating">Rating</option>
+            <option value="seats">Seats available</option>
+            <option value="requirements">Requirements</option>
+            <option value="semester">Semester</option>
+            <option value="datetime">Date &amp; time</option>
+          </select>
+        </div>
+      </aside>
+
+      <div class="cards-col">
+        <div id="classes-status" class="status">
+          <span id="classes-count"></span>
+        </div>
+        <div id="course-cards" class="course-cards"></div>
+      </div>
     </div>
   </section>
 
@@ -66,6 +97,42 @@
     </div>
   </section>
 </main>
+
+<div id="course-modal" class="modal-overlay hidden">
+  <div class="modal course-modal">
+    <button id="course-modal-close" class="modal-close" aria-label="Close">&times;</button>
+    <div class="course-modal-header">
+      <h2 id="course-modal-title"></h2>
+      <p id="course-modal-subtitle" class="course-modal-subtitle"></p>
+    </div>
+    <div class="course-modal-tabs">
+      <button class="course-tab-btn active" data-ctab="overview">Overview</button>
+      <button class="course-tab-btn" data-ctab="sections">Sections</button>
+      <button class="course-tab-btn" data-ctab="requirements">Requirements</button>
+    </div>
+    <div id="course-tab-overview" class="course-tab-panel active">
+      <div id="course-overview-body"></div>
+    </div>
+    <div id="course-tab-sections" class="course-tab-panel">
+      <div class="table-wrap">
+        <table id="course-sections-table">
+          <thead>
+            <tr><th>CRN</th><th>Instructor</th><th>Modality</th><th>Meeting</th><th>Location</th><th>Seats</th><th>Status</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+    <div id="course-tab-requirements" class="course-tab-panel">
+      <div id="course-requirements-list" class="requirements-list"></div>
+      <div class="requirement-form">
+        <textarea id="requirement-text" placeholder="Add a requirement or note for students (e.g. prior coursework, materials needed)..." maxlength="500"></textarea>
+        <button id="requirement-submit" class="btn-primary">Add requirement</button>
+      </div>
+      <p class="modal-note">Requirements here are submitted directly by users of this site.</p>
+    </div>
+  </div>
+</div>
 
 <div id="rate-modal" class="modal-overlay hidden">
   <div class="modal">
