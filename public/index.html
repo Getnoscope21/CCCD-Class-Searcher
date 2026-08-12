@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coast Colleges Class Finder</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Coast Colleges Class Finder</h1>
+  <p class="subtitle">Golden West &middot; Orange Coast &middot; Coastline &mdash; search classes and professors in one place</p>
+</header>
+
+<main>
+  <div class="tabs">
+    <button class="tab-btn active" data-tab="classes">Classes</button>
+    <button class="tab-btn" data-tab="professors">Professors</button>
+  </div>
+
+  <section id="classes-tab" class="tab-panel active">
+    <div class="filters">
+      <input id="q" type="text" placeholder="Search course, title, CRN, or instructor..." />
+      <select id="college"><option value="">All Colleges</option></select>
+      <select id="subject"><option value="">All Subjects</option></select>
+      <select id="modality">
+        <option value="">Any Modality</option>
+        <option value="In-Person">In-Person</option>
+        <option value="Online">Online</option>
+        <option value="Live Online">Live Online</option>
+        <option value="TBA">TBA</option>
+      </select>
+      <label class="checkbox"><input type="checkbox" id="open_only" /> Open sections only</label>
+    </div>
+    <div id="classes-status" class="status">
+      <span id="classes-count"></span>
+      <button id="open-all-rmp" class="rate-btn" style="display:none">Open RateMyProfessor for all professors shown →</button>
+    </div>
+    <div class="table-wrap">
+      <table id="classes-table">
+        <thead>
+          <tr>
+            <th>College</th><th>Course</th><th>Title</th><th>CRN</th>
+            <th>Instructor</th><th>Modality</th><th>Meeting</th><th>Location</th><th>Seats</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="professors-tab" class="tab-panel">
+    <div class="filters">
+      <input id="prof-q" type="text" placeholder="Search professor name..." />
+      <select id="prof-college"><option value="">All Colleges</option></select>
+    </div>
+    <div id="professors-status" class="status"></div>
+    <div class="table-wrap">
+      <table id="professors-table">
+        <thead><tr><th>Instructor</th><th>College</th><th>Sections</th><th>Rating</th><th>RateMyProfessor</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div id="rate-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>Rate <span id="rate-modal-name"></span></h3>
+    <div class="star-picker" id="star-picker">
+      <span data-val="1">★</span><span data-val="2">★</span><span data-val="3">★</span><span data-val="4">★</span><span data-val="5">★</span>
+    </div>
+    <textarea id="rate-comment" placeholder="Optional comment (visible to other students on this site)" maxlength="500"></textarea>
+    <div class="modal-actions">
+      <button id="rate-cancel" class="btn-secondary">Cancel</button>
+      <button id="rate-submit" class="btn-primary">Submit rating</button>
+    </div>
+    <p class="modal-note">Ratings here are submitted by users of this site directly &mdash; not pulled from any other site.</p>
+  </div>
+</div>
+
+<footer>
+  <p>Class data pulled from the official CCCD public schedule search. Not affiliated with Golden West College,
+     Orange Coast College, Coastline Community College, or the Coast Community College District.
+     Ratings are user-submitted on this site and are not sourced from RateMyProfessor or any third party.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
