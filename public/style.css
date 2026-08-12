@@ -248,22 +248,29 @@ footer {
 .course-card-sections { color: var(--muted); }
 
 /* ---- Course detail modal ---- */
-.modal.course-modal { width: 960px; max-width: 94vw; max-height: 88vh; overflow-y: auto; position: relative; padding-top: 20px; }
+/* Fixed height (not just a max) so the modal doesn't jump in size between
+   courses/tabs with different amounts of content -- the body area scrolls
+   internally instead of resizing the whole modal. */
+.modal.course-modal {
+  width: 960px; max-width: 94vw; height: 640px; max-height: 88vh;
+  display: flex; flex-direction: column; position: relative; padding-top: 20px; overflow: hidden;
+}
 .modal-close {
   position: absolute; top: 14px; right: 16px; border: none; background: none; font-size: 1.4rem;
   line-height: 1; color: var(--muted); cursor: pointer; padding: 4px;
 }
 .modal-close:hover { color: var(--text); }
-.course-modal-header { margin-bottom: 14px; padding-right: 28px; }
+.course-modal-header { margin-bottom: 14px; padding-right: 28px; flex: none; }
 .course-modal-header h2 { margin: 0 0 4px; font-size: 1.25rem; font-weight: 800; letter-spacing: -0.01em; }
 .course-modal-subtitle { margin: 0; color: var(--muted); font-size: 0.88rem; font-weight: 600; }
 
-.course-modal-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.course-modal-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; flex: none; }
 .course-tab-btn {
   padding: 9px 4px; margin-right: 18px; border: none; background: none; cursor: pointer;
   font-size: 0.9rem; font-weight: 600; color: var(--muted); border-bottom: 2px solid transparent;
 }
 .course-tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.course-modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 .course-tab-panel { display: none; }
 .course-tab-panel.active { display: block; }
 #course-overview-body p { margin: 0 0 12px; line-height: 1.55; font-size: 0.92rem; }

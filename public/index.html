@@ -124,19 +124,21 @@
       <button class="course-tab-btn" data-ctab="sections">Sections</button>
       <button class="course-tab-btn" data-ctab="requirements">Requirements</button>
     </div>
-    <div id="course-tab-overview" class="course-tab-panel active">
-      <div id="course-overview-body"></div>
-    </div>
-    <div id="course-tab-sections" class="course-tab-panel">
-      <div id="section-cards" class="section-cards"></div>
-    </div>
-    <div id="course-tab-requirements" class="course-tab-panel">
-      <div id="course-requirements-list" class="requirements-list"></div>
-      <div class="requirement-form">
-        <textarea id="requirement-text" placeholder="Add a requirement or note for students (e.g. prior coursework, materials needed)..." maxlength="500"></textarea>
-        <button id="requirement-submit" class="btn-primary">Add requirement</button>
+    <div class="course-modal-body">
+      <div id="course-tab-overview" class="course-tab-panel active">
+        <div id="course-overview-body"></div>
       </div>
-      <p class="modal-note">Requirements here are submitted directly by users of this site.</p>
+      <div id="course-tab-sections" class="course-tab-panel">
+        <div id="section-cards" class="section-cards"></div>
+      </div>
+      <div id="course-tab-requirements" class="course-tab-panel">
+        <div id="course-requirements-list" class="requirements-list"></div>
+        <div class="requirement-form">
+          <textarea id="requirement-text" placeholder="Add a requirement or note for students (e.g. prior coursework, materials needed)..." maxlength="500"></textarea>
+          <button id="requirement-submit" class="btn-primary">Add requirement</button>
+        </div>
+        <p class="modal-note">Requirements here are submitted directly by users of this site.</p>
+      </div>
     </div>
   </div>
 </div>
