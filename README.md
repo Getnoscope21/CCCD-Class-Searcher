@@ -58,35 +58,38 @@ Before making this public, worth doing:
 ### Free hosting on Render + GitHub Actions
 
 `data.db` is committed to the repo pre-seeded with course data and
-descriptions, so a fresh deploy has real content immediately -- no
-1,800-request description scrape needed on every cold start.
+descriptions, so a fresh deploy has real content immediately.
+
+Scraping and parsing CCCD's raw HTML (`cheerio` builds a full DOM from
+several megabytes of markup per college) is memory-heavy enough to crash a
+Render free instance (512MB RAM) if it runs inside the live web process --
+so refreshing does NOT happen on Render at all. Instead, a GitHub Actions
+workflow (`.github/workflows/refresh.yml`, runs every 20 minutes, free and
+unmetered on a public repo since GitHub Actions runners have several GB of
+RAM) does the scrape, commits the updated `data.db`, and pushes it. Render
+auto-deploys on every push to `main` by default, which picks up the fresh
+data a minute or two later.
 
 1. **Render** (render.com): New → Web Service → connect this GitHub repo.
    - Build command: `npm install`
    - Start command: `node server.js`
    - Plan: Free
-   - Add an environment variable `REFRESH_TOKEN` set to a long random string
-     (this guards the `/api/admin/refresh` endpoint from public abuse)
    - Deploy. You'll get a public URL like `https://your-app.onrender.com`.
+   - Confirm "Auto-Deploy" is enabled in the service settings (on by default)
+     so it redeploys automatically whenever the workflow pushes new data.
 
-   Free-tier caveat: the service spins down after 15 minutes idle and has no
-   persistent disk, so any writes (new ratings, requirements, refreshed
-   seat counts) since the last restart are lost when it spins down. The
-   GitHub Actions job below both keeps it refreshed *and* keeps it awake
-   (a ping within the 15-minute window prevents spin-down), so in practice
-   it stays warm and current as long as the schedule keeps firing.
+   Free-tier caveat: the service still spins down after 15 minutes idle
+   (first visitor after that waits ~30-50s for a cold start), and since
+   there's no persistent disk, anything written at runtime (new ratings,
+   requirements) is lost on the next redeploy or restart. The scraped
+   course/seat data isn't affected by that, since it's baked into each
+   deploy via the committed `data.db` rather than written at runtime.
 
-2. **GitHub Actions** (already set up in `.github/workflows/refresh.yml`,
-   runs every 10 minutes): add two repo secrets at
-   Settings → Secrets and variables → Actions:
-   - `SITE_URL` — your Render URL, no trailing slash (e.g. `https://your-app.onrender.com`)
-   - `REFRESH_TOKEN` — the same value you set on Render
-
-   This pings `/api/admin/refresh`, which re-scrapes seats/status only
-   (3 requests, a few seconds) -- not descriptions, which rarely change and
-   already shipped in the seed `data.db`. GitHub disables scheduled workflows
-   after 60 days with no commits to the repo, so an occasional push keeps it
-   alive long-term.
+2. **GitHub Actions**: nothing to configure -- `.github/workflows/refresh.yml`
+   already has the `contents: write` permission it needs to commit using the
+   repo's built-in token, no secrets required. GitHub disables scheduled
+   workflows after 60 days with no commits to the repo, but the workflow's
+   own commits count, so it keeps itself alive indefinitely once running.
 
 For always-on hosting without these tradeoffs (no cold starts, no data loss,
 reuses the exact same cron approach used locally), a small VPS (~$5-6/month)

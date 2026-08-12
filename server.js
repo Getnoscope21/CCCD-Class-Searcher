@@ -1,39 +1,11 @@
 const express = require('express');
 const path = require('path');
 const db = require('./db');
-const { COLLEGES, scrapeCollege } = require('./scraper');
+const { COLLEGES } = require('./scraper');
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
-
-const SCRAPE_TERM = process.env.SCRAPE_TERM || '202670';
-const SCRAPE_TERM_DESC = process.env.SCRAPE_TERM_DESC || 'Fall 2026';
-let refreshInProgress = false;
-
-// Lightweight live-data refresh (seats/status only, ~3 requests total) for hosts
-// without a persistent disk -- an external scheduler (e.g. GitHub Actions) pings
-// this on an interval so section data stays current even after a cold start.
-// Course descriptions are NOT re-fetched here (that's ~1800 requests) -- they
-// ship pre-seeded in the committed data.db and only need occasional refreshing.
-app.get('/api/admin/refresh', async (req, res) => {
-  if (!process.env.REFRESH_TOKEN || req.query.token !== process.env.REFRESH_TOKEN) {
-    return res.status(403).json({ error: 'forbidden' });
-  }
-  if (refreshInProgress) return res.json({ status: 'already running' });
-  refreshInProgress = true;
-  try {
-    let total = 0;
-    for (const college of Object.keys(COLLEGES)) {
-      total += await scrapeCollege(college, SCRAPE_TERM, SCRAPE_TERM_DESC);
-    }
-    res.json({ status: 'ok', sections: total, term: SCRAPE_TERM });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  } finally {
-    refreshInProgress = false;
-  }
-});
 
 function modalityOf(location) {
   const loc = (location || '').toUpperCase();
