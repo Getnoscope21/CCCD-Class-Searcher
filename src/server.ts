@@ -1,9 +1,7 @@
-import express, { type Request, type Response } from "express";
+import express from "express";
 import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
 import path from "node:path";
-import { createClient } from "@supabase/supabase-js";
-import { z } from "zod";
 import { assistTransferabilityUrl } from "./assist-links";
 import db from "./db";
 import { REQUIREMENT_CATEGORIES } from "./ge-requirements";
@@ -19,15 +17,6 @@ import type {
 
 const app = express();
 const clientBuildDir = path.resolve(__dirname, "client");
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseAnonKey = process.env.SUPABASE_ANON_KEY;
-const supabase =
-  supabaseUrl && supabaseAnonKey
-    ? createClient(supabaseUrl, supabaseAnonKey, {
-        auth: { autoRefreshToken: false, persistSession: false },
-      })
-    : null;
 
 app.disable("x-powered-by");
 app.use(
@@ -69,120 +58,6 @@ app.get("/api/config", (req, res) => {
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || null,
   });
 });
-
-const collegeCodeSchema = z.enum(["GW", "OC", "CL"]);
-const courseRequirementSchema = z.object({
-  college: collegeCodeSchema,
-  subject: z.string().trim().min(1).max(20),
-  course_number: z.string().trim().min(1).max(20),
-  text: z.string().trim().min(1).max(500),
-});
-const ratingSchema = z.object({
-  instructor: z.string().trim().min(1).max(160),
-  college: collegeCodeSchema,
-  rating: z.number().int().min(1).max(5),
-  comment: z.string().trim().max(500).optional().default(""),
-});
-
-interface AuthenticatedSession {
-  userId: string;
-  accessToken: string;
-}
-
-async function authenticatedSession(
-  req: Request,
-  res: Response,
-): Promise<AuthenticatedSession | null> {
-  if (!supabase) {
-    res.status(503).json({ error: "Sign-in is not configured" });
-    return null;
-  }
-  const token = req.header("authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) {
-    res.status(401).json({ error: "Sign in to perform this action" });
-    return null;
-  }
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data.user) {
-    res.status(401).json({ error: "Your session has expired; sign in again" });
-    return null;
-  }
-  return { userId: data.user.id, accessToken: token };
-}
-
-function userContentClient(accessToken: string) {
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Sign-in is not configured");
-  }
-  return createClient(supabaseUrl, supabaseAnonKey, {
-    auth: { autoRefreshToken: false, persistSession: false },
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  });
-}
-
-const writeRateLimit = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 20,
-  standardHeaders: "draft-8",
-  legacyHeaders: false,
-});
-
-async function hydrateUserContentCache() {
-  if (!supabase) return;
-  const [
-    { data: ratings, error: ratingsError },
-    { data: requirements, error: requirementsError },
-  ] = await Promise.all([
-    supabase
-      .from("ratings")
-      .select("user_id, instructor, college, rating, comment, created_at"),
-    supabase
-      .from("course_requirements")
-      .select(
-        "user_id, college, subject, course_number, requirement_text, created_at",
-      ),
-  ]);
-  if (ratingsError || requirementsError) {
-    console.error("Could not hydrate Supabase user content cache", {
-      ratingsError: ratingsError?.message,
-      requirementsError: requirementsError?.message,
-    });
-    return;
-  }
-  const hydrate = db.transaction(() => {
-    db.prepare("DELETE FROM ratings").run();
-    db.prepare("DELETE FROM course_requirements").run();
-    const insertRating = db.prepare(
-      `INSERT INTO ratings (user_id, instructor, college, rating, comment, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    );
-    for (const rating of ratings ?? []) {
-      insertRating.run(
-        rating.user_id,
-        rating.instructor,
-        rating.college,
-        rating.rating,
-        rating.comment,
-        rating.created_at,
-      );
-    }
-    const insertRequirement = db.prepare(
-      `INSERT INTO course_requirements (user_id, college, subject, course_number, requirement_text, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-    );
-    for (const requirement of requirements ?? []) {
-      insertRequirement.run(
-        requirement.user_id,
-        requirement.college,
-        requirement.subject,
-        requirement.course_number,
-        requirement.requirement_text,
-        requirement.created_at,
-      );
-    }
-  });
-  hydrate();
-}
 
 app.get("/healthz", (_req, res) => {
   res.status(200).json({ status: "ok" });
@@ -677,23 +552,17 @@ app.get("/api/course/:college/:subject/:number", (req, res) => {
   });
 });
 
-app.post("/api/course-requirements", writeRateLimit, async (req, res) => {
-  const session = await authenticatedSession(req, res);
-  if (!session) return;
-  const parsed = courseRequirementSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid course requirement" });
-  }
-  const { college, subject, course_number, text } = parsed.data;
-  const { error: writeError } = await userContentClient(session.accessToken)
-    .from("course_requirements")
-    .insert({ college, subject, course_number, requirement_text: text });
-  if (writeError) {
-    return res.status(502).json({ error: "Could not save your requirement" });
+app.post("/api/course-requirements", (req, res) => {
+  const { college, subject, course_number, text } = req.body || {};
+  const trimmed = (text || "").trim();
+  if (!college || !subject || !course_number || !trimmed) {
+    return res.status(400).json({
+      error: "college, subject, course_number, and text are required",
+    });
   }
   db.prepare(
-    `INSERT INTO course_requirements (user_id, college, subject, course_number, requirement_text) VALUES (?, ?, ?, ?, ?)`,
-  ).run(session.userId, college, subject, course_number, text);
+    `INSERT INTO course_requirements (college, subject, course_number, requirement_text) VALUES (?, ?, ?, ?)`,
+  ).run(college, subject, course_number, trimmed.slice(0, 500));
 
   const requirements = db
     .prepare(
@@ -760,23 +629,23 @@ app.get("/api/instructor/:name", (req, res) => {
   });
 });
 
-app.post("/api/ratings", writeRateLimit, async (req, res) => {
-  const session = await authenticatedSession(req, res);
-  if (!session) return;
-  const parsed = ratingSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid rating" });
-  }
-  const { instructor, college, rating, comment } = parsed.data;
-  const { error: writeError } = await userContentClient(session.accessToken)
-    .from("ratings")
-    .insert({ instructor, college, rating, comment });
-  if (writeError) {
-    return res.status(502).json({ error: "Could not save your rating" });
+app.post("/api/ratings", (req, res) => {
+  const { instructor, college, rating, comment } = req.body || {};
+  const ratingNum = Number(rating);
+  if (
+    !instructor ||
+    !college ||
+    !Number.isInteger(ratingNum) ||
+    ratingNum < 1 ||
+    ratingNum > 5
+  ) {
+    return res.status(400).json({
+      error: "instructor, college, and an integer rating 1-5 are required",
+    });
   }
   db.prepare(
-    `INSERT INTO ratings (user_id, instructor, college, rating, comment) VALUES (?, ?, ?, ?, ?)`,
-  ).run(session.userId, instructor, college, rating, comment);
+    `INSERT INTO ratings (instructor, college, rating, comment) VALUES (?, ?, ?, ?)`,
+  ).run(instructor, college, ratingNum, (comment || "").slice(0, 500));
 
   const summary = db
     .prepare(
@@ -793,7 +662,6 @@ app.use((req, res, next) => {
 });
 
 const PORT = process.env.PORT || 3000;
-void hydrateUserContentCache();
 app.listen(PORT, () =>
   console.log(
     `GWC/OCC/Coastline Class Finder running at http://localhost:${PORT}`,

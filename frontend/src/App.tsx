@@ -13,7 +13,7 @@ import {
   type SupabaseClient,
   type User,
 } from "@supabase/supabase-js";
-import { api, setAccessToken } from "./api";
+import { api } from "./api";
 import type {
   AppTab,
   College,
@@ -85,11 +85,9 @@ function AuthProvider({ children }: { children: ReactNode }) {
         );
         setClient(nextClient);
         const { data } = await nextClient.auth.getSession();
-        setAccessToken(data.session?.access_token ?? null);
         if (active) setUser(data.session?.user ?? null);
         const listener = nextClient.auth.onAuthStateChange(
           (_event, session) => {
-            setAccessToken(session?.access_token ?? null);
             setUser(session?.user ?? null);
           },
         );
@@ -101,7 +99,6 @@ function AuthProvider({ children }: { children: ReactNode }) {
       });
     return () => {
       active = false;
-      setAccessToken(null);
       unsubscribe?.();
     };
   }, []);
@@ -669,7 +666,6 @@ function ProfessorsPage({
     refresh: () => void,
   ) => void;
 }) {
-  const { user } = useAuth();
   const [q, setQ] = useState("");
   const [college, setCollege] = useState("");
   const [rows, setRows] = useState<Instructor[]>([]);
@@ -743,18 +739,14 @@ function ProfessorsPage({
                 <td>{row.section_count}</td>
                 <td>
                   <RatingSummary {...row} />{" "}
-                  {user ? (
-                    <button
-                      className="rate-btn"
-                      onClick={() =>
-                        onRate(row.instructor, row.college, () => void search())
-                      }
-                    >
-                      Rate
-                    </button>
-                  ) : (
-                    <span className="no-rating">Sign in to rate</span>
-                  )}
+                  <button
+                    className="rate-btn"
+                    onClick={() =>
+                      onRate(row.instructor, row.college, () => void search())
+                    }
+                  >
+                    Rate
+                  </button>
                 </td>
                 <td>
                   <a
@@ -982,22 +974,18 @@ function CourseDetailDialog({
                   <>
                     <div className="section-card-rating">
                       <RatingSummary {...section} />{" "}
-                      {user ? (
-                        <button
-                          className="rate-btn"
-                          onClick={() =>
-                            onRate(
-                              section.instructor,
-                              section.college,
-                              () => void load(),
-                            )
-                          }
-                        >
-                          Rate
-                        </button>
-                      ) : (
-                        <span className="no-rating">Sign in to rate</span>
-                      )}
+                      <button
+                        className="rate-btn"
+                        onClick={() =>
+                          onRate(
+                            section.instructor,
+                            section.college,
+                            () => void load(),
+                          )
+                        }
+                      >
+                        Rate
+                      </button>
                     </div>
                     <div className="section-card-links">
                       <a
@@ -1052,29 +1040,23 @@ function CourseDetailDialog({
                 </p>
               )}
             </div>
-            {user ? (
-              <div className="requirement-form">
-                <textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="Add a requirement or note for students (e.g. prior coursework, materials needed)..."
-                  maxLength={500}
-                />
-                <button
-                  className="btn-primary"
-                  disabled={savingNote || !note.trim()}
-                  onClick={() => void saveNote()}
-                >
-                  {savingNote ? "Saving…" : "Add requirement"}
-                </button>
-              </div>
-            ) : (
-              <p className="modal-note">
-                Sign in to add a requirement or note.
-              </p>
-            )}
+            <div className="requirement-form">
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Add a requirement or note for students (e.g. prior coursework, materials needed)..."
+                maxLength={500}
+              />
+              <button
+                className="btn-primary"
+                disabled={savingNote || !note.trim()}
+                onClick={() => void saveNote()}
+              >
+                {savingNote ? "Saving…" : "Add requirement"}
+              </button>
+            </div>
             <p className="modal-note">
-              Requirements here are submitted directly by signed-in users.
+              Requirements here are submitted directly by users of this site.
             </p>
           </div>
         )}

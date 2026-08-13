@@ -8,19 +8,8 @@ import type {
   Requirement,
 } from "./types";
 
-let accessToken: string | null = null;
-
-export function setAccessToken(token: string | null) {
-  accessToken = token;
-}
-
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers);
-  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
-  const response = await fetch(
-    path,
-    accessToken || init?.headers ? { ...init, headers } : init,
-  );
+  const response = await fetch(path, init);
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
       error?: string;

@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, setAccessToken } from "./api";
+import { api } from "./api";
 
-afterEach(() => {
-  setAccessToken(null);
-  vi.unstubAllGlobals();
-});
+afterEach(() => vi.unstubAllGlobals());
 
 describe("API client", () => {
   it("passes course-card filters through to the API endpoint", async () => {
@@ -39,25 +36,5 @@ describe("API client", () => {
         comment: "",
       }),
     ).rejects.toThrow("Invalid rating");
-  });
-
-  it("adds the signed-in user's token to write requests", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-    setAccessToken("session-token");
-
-    await api.addRequirement({
-      college: "OC",
-      subject: "ACCT",
-      course_number: "100",
-      text: "Bring a calculator.",
-    });
-
-    const [, init] = fetchMock.mock.calls[0] ?? [];
-    expect(new Headers(init?.headers).get("Authorization")).toBe(
-      "Bearer session-token",
-    );
   });
 });

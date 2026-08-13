@@ -34,7 +34,6 @@ CREATE INDEX IF NOT EXISTS idx_courses_title ON courses(title);
 
 CREATE TABLE IF NOT EXISTS ratings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id TEXT,
   instructor TEXT NOT NULL,
   college TEXT NOT NULL,
   rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5),
@@ -58,7 +57,6 @@ CREATE TABLE IF NOT EXISTS course_catalog (
 
 CREATE TABLE IF NOT EXISTS course_requirements (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id TEXT,
   college TEXT NOT NULL,
   subject TEXT NOT NULL,
   course_number TEXT NOT NULL,
@@ -77,24 +75,5 @@ CREATE TABLE IF NOT EXISTS course_ge_tags (
 );
 CREATE INDEX IF NOT EXISTS idx_course_ge_tags_lookup ON course_ge_tags(term, code);
 `);
-
-// Existing deployments already have these local cache tables. SQLite cannot
-// add the column inside CREATE TABLE IF NOT EXISTS, so make this migration
-// idempotent while Supabase becomes the durable source of user content.
-for (const statement of [
-  "ALTER TABLE ratings ADD COLUMN user_id TEXT",
-  "ALTER TABLE course_requirements ADD COLUMN user_id TEXT",
-]) {
-  try {
-    db.exec(statement);
-  } catch (error) {
-    if (
-      !(error instanceof Error) ||
-      !error.message.includes("duplicate column")
-    ) {
-      throw error;
-    }
-  }
-}
 
 export default db;
