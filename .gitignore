@@ -1,7 +1,4 @@
 node_modules/
-dist/
-public/assets/
-.env
 data.db-shm
 data.db-wal
 server.log

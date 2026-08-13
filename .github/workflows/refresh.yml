@@ -2,7 +2,7 @@ name: Refresh live class data
 
 on:
   schedule:
-    - cron: "*/20 * * * *"
+    - cron: '*/20 * * * *'
   workflow_dispatch: {}
 
 permissions:
@@ -16,16 +16,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 20
 
       - name: Install dependencies
-        run: npm ci
-
-      - name: Validate application
-        run: npm test
+        run: npm install --omit=dev
 
       - name: Scrape latest seats/status (skips descriptions -- those rarely change)
-        run: npm run scrape -- 202670 "Fall 2026" --skip-descriptions
+        run: node scraper.js 202670 "Fall 2026" --skip-descriptions
 
       - name: Checkpoint SQLite WAL into data.db
         run: |
