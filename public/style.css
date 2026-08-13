@@ -30,6 +30,7 @@ header {
   color: white;
   padding: 18px 24px 16px;
   text-align: center;
+  position: relative;
 }
 header h1 {
   margin: 0 0 2px;
@@ -38,6 +39,20 @@ header h1 {
   letter-spacing: -0.01em;
 }
 .subtitle { margin: 0; opacity: 0.8; font-size: 0.8rem; font-weight: 500; letter-spacing: 0.02em; }
+
+.header-account {
+  position: absolute; top: 14px; right: 20px; display: flex; align-items: center; gap: 10px;
+  font-size: 0.82rem;
+}
+.header-account #account-email { opacity: 0.85; font-weight: 600; }
+.header-account-btn {
+  border: 1px solid rgba(255,255,255,0.4); background: rgba(255,255,255,0.08); color: white;
+  padding: 6px 14px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+  transition: background 0.15s ease;
+}
+.header-account-btn:hover { background: rgba(255,255,255,0.2); }
+.header-account-btn.hidden { display: none; }
+#account-email.hidden { display: none; }
 
 main { max-width: 1280px; margin: -14px auto 0; padding: 0 16px 60px; position: relative; }
 
@@ -154,6 +169,20 @@ footer {
 .modal textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .modal-note { font-size: 0.75rem; color: var(--muted); margin: 12px 0 0; line-height: 1.4; }
+
+.auth-input {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+  font-family: inherit; font-size: 0.9rem; background: var(--bg); color: var(--text); margin-bottom: 10px;
+}
+.auth-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.auth-error {
+  background: #fce8e7; color: var(--closed); border-radius: 8px; padding: 8px 10px; font-size: 0.82rem; margin: 0 0 10px;
+}
+.auth-error.hidden { display: none; }
+.auth-notice {
+  background: var(--accent-soft); color: var(--accent-dark); border-radius: 8px; padding: 8px 10px; font-size: 0.82rem; margin: 0 0 10px;
+}
+.auth-notice.hidden { display: none; }
 .btn-primary, .btn-secondary {
   padding: 9px 16px; border-radius: 10px; font-size: 0.88rem; font-weight: 600; cursor: pointer; border: 1px solid var(--border);
   transition: filter 0.15s ease;
@@ -390,6 +419,7 @@ footer {
   .badge.modality-live-online { background: #33182a; color: #e685b3; }
   .badge.modality-tba { background: #1e2229; color: var(--muted); }
   .star-picker span { color: #333a48; }
+  .auth-error { background: #3a1615; }
 }
 
 @media (max-width: 640px) {

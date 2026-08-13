@@ -9,6 +9,17 @@ const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 
+// Supabase URL + anon key are safe to expose to the browser (the anon key is
+// meant to be public -- real access control happens via Row Level Security
+// policies in Supabase, not by hiding this key). Frontend fetches this once
+// on load instead of the values being hardcoded into committed JS.
+app.get('/api/config', (req, res) => {
+  res.json({
+    supabaseUrl: process.env.SUPABASE_URL || null,
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || null,
+  });
+});
+
 function modalityOf(location) {
   const loc = (location || '').toUpperCase();
   if (loc.includes('LIVEONLINE')) return 'Live Online';

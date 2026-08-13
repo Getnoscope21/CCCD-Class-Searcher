@@ -19,10 +19,10 @@ data from the district's own public schedule search system.
   "requirements" notes
 - Browse/search professors, with a native student rating system plus a link
   out to a RateMyProfessor search (no scraping of RMP content -- see note below)
-- A Planner tab to sketch out a multi-semester schedule: add classes to
-  semesters you create, see per-semester and total unit counts. Saved to
-  `localStorage` in your browser only -- there's no login system, so nothing
-  is stored server-side or shared between devices/browsers
+- A Planner tab to sketch out a multi-semester schedule: sign in, add classes
+  to semesters you create, see per-semester and total unit counts. Accounts
+  and planner data live in Supabase (a hosted Postgres + auth service), tied
+  to your login rather than one browser/device
 
 ## Data source
 
@@ -111,6 +111,35 @@ reuses the exact same cron approach used locally), a small VPS (~$5-6/month)
 is the simpler and more reliable option -- just `git clone`, `npm install`,
 `crontab` the same refresh commands from the section above, and run the
 server behind a process manager like `pm2` or a systemd unit.
+
+### Accounts and the Planner (Supabase)
+
+Unlike ratings/requirements (still local SQLite, still wiped on Render
+redeploy per the caveat above), sign-in and Planner data live in a separate
+Supabase project (hosted Postgres + auth) and are unaffected by Render
+redeploys/restarts entirely.
+
+Setup:
+
+1. Create a free project at supabase.com.
+2. In the project's SQL Editor, run `supabase-schema.sql` from this repo once
+   -- creates the `planner_terms`/`planner_courses` tables with Row Level
+   Security policies so each user can only ever see their own rows.
+3. From Project Settings -> API, copy the Project URL and the publishable
+   (anon) key -- never the secret/service_role key, which must never be
+   exposed to the browser.
+4. Set two environment variables wherever the server runs (Render: service ->
+   Environment): `SUPABASE_URL` and `SUPABASE_ANON_KEY`. The server exposes
+   these to the frontend via `/api/config` (safe to expose -- the anon key
+   only works within the RLS policies above, it isn't a secret credential).
+5. By default Supabase requires email confirmation on signup. For a casual/
+   friend-group deployment this is worth turning off (Authentication -> Sign
+   In / Providers -> Email -> "Confirm email"), since the free tier's
+   outgoing email is rate-limited and several signups close together can
+   leave people waiting on a confirmation email that's slow to arrive.
+
+Without these env vars set, the app still runs fine -- sign-in/Planner UI
+just stays inactive (`/api/config` returns nulls, and the frontend no-ops).
 
 ## On professor ratings
 

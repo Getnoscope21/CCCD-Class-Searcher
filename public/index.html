@@ -8,9 +8,15 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
 <header>
+  <div class="header-account">
+    <span id="account-email" class="hidden"></span>
+    <button id="account-signin-btn" class="header-account-btn">Sign in</button>
+    <button id="account-signout-btn" class="header-account-btn hidden">Sign out</button>
+  </div>
   <h1>Coast Colleges Class Finder</h1>
   <p class="subtitle">Golden West &middot; Orange Coast &middot; Coastline</p>
 </header>
@@ -116,12 +122,16 @@
     <div class="planner-header">
       <div>
         <h2 class="planner-title">Your Plan</h2>
-        <p class="planner-subtitle">Saved in this browser only. Add classes to a semester from any course's Overview tab.</p>
+        <p class="planner-subtitle" id="planner-subtitle">Add classes to a semester from any course's Overview tab.</p>
       </div>
       <div class="planner-header-right">
         <span id="planner-total-units" class="planner-total"></span>
         <button id="planner-add-semester" class="btn-primary">+ Add Semester</button>
       </div>
+    </div>
+    <div id="planner-signed-out" class="planner-empty hidden">
+      <strong>Sign in</strong> to create and save your plan &mdash; it's tied to your account, so it's there
+      whenever and wherever you log back in.
     </div>
     <div id="planner-empty" class="planner-empty hidden">
       Nothing planned yet. Click <strong>+ Add Semester</strong> to start, then add classes from their Overview tab.
@@ -162,6 +172,23 @@
         <p class="modal-note">Requirements here are submitted directly by users of this site.</p>
       </div>
     </div>
+  </div>
+</div>
+
+<div id="auth-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <h3 id="auth-modal-title">Sign in</h3>
+    <p id="auth-error" class="auth-error hidden"></p>
+    <p id="auth-notice" class="auth-notice hidden"></p>
+    <input id="auth-email" type="email" placeholder="Email" class="auth-input" autocomplete="email" />
+    <input id="auth-password" type="password" placeholder="Password" class="auth-input" autocomplete="current-password" />
+    <div class="modal-actions">
+      <button id="auth-cancel" class="btn-secondary">Cancel</button>
+      <button id="auth-submit" class="btn-primary">Sign in</button>
+    </div>
+    <p class="modal-note">
+      <a href="#" id="auth-toggle-mode">Don't have an account? Sign up</a>
+    </p>
   </div>
 </div>
 

@@ -282,68 +282,175 @@ document.getElementById('requirement-submit').addEventListener('click', async ()
   runCourseSearch();
 });
 
-// ---- Planner (saved client-side in this browser only, via localStorage) ----
-const PLANNER_KEY = 'classfinder_planner_v1';
+// ---- Auth + Planner (planner data lives in Supabase, per signed-in account) ----
+let supabaseClient = null;
+let currentUser = null;
 
-function loadPlanner() {
-  try {
-    const raw = localStorage.getItem(PLANNER_KEY);
-    return raw ? JSON.parse(raw) : { terms: [] };
-  } catch (e) {
-    return { terms: [] };
+async function initSupabase() {
+  const config = await fetch('/api/config').then((r) => r.json());
+  if (!config.supabaseUrl || !config.supabaseAnonKey) {
+    console.warn('Supabase not configured -- sign-in/planner disabled.');
+    return;
+  }
+  supabaseClient = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  updateAccountUI(session);
+  supabaseClient.auth.onAuthStateChange((event, newSession) => {
+    updateAccountUI(newSession);
+    renderPlanner();
+  });
+}
+
+function updateAccountUI(session) {
+  currentUser = session ? session.user : null;
+  const emailEl = document.getElementById('account-email');
+  const signinBtn = document.getElementById('account-signin-btn');
+  const signoutBtn = document.getElementById('account-signout-btn');
+  if (currentUser) {
+    emailEl.textContent = currentUser.email;
+    emailEl.classList.remove('hidden');
+    signinBtn.classList.add('hidden');
+    signoutBtn.classList.remove('hidden');
+  } else {
+    emailEl.classList.add('hidden');
+    signinBtn.classList.remove('hidden');
+    signoutBtn.classList.add('hidden');
   }
 }
 
-function savePlanner(plan) {
-  localStorage.setItem(PLANNER_KEY, JSON.stringify(plan));
+let authMode = 'signin';
+
+function openAuthModal(mode) {
+  authMode = mode;
+  document.getElementById('auth-modal-title').textContent = mode === 'signup' ? 'Sign up' : 'Sign in';
+  document.getElementById('auth-submit').textContent = mode === 'signup' ? 'Sign up' : 'Sign in';
+  document.getElementById('auth-toggle-mode').textContent =
+    mode === 'signup' ? 'Already have an account? Sign in' : "Don't have an account? Sign up";
+  document.getElementById('auth-error').classList.add('hidden');
+  document.getElementById('auth-notice').classList.add('hidden');
+  document.getElementById('auth-email').value = '';
+  document.getElementById('auth-password').value = '';
+  document.getElementById('auth-modal').classList.remove('hidden');
+}
+function closeAuthModal() { document.getElementById('auth-modal').classList.add('hidden'); }
+
+document.getElementById('account-signin-btn').addEventListener('click', () => openAuthModal('signin'));
+document.getElementById('account-signout-btn').addEventListener('click', async () => {
+  if (supabaseClient) await supabaseClient.auth.signOut();
+});
+document.getElementById('auth-cancel').addEventListener('click', closeAuthModal);
+document.getElementById('auth-modal').addEventListener('click', (e) => {
+  if (e.target.id === 'auth-modal') closeAuthModal();
+});
+document.getElementById('auth-toggle-mode').addEventListener('click', (e) => {
+  e.preventDefault();
+  openAuthModal(authMode === 'signin' ? 'signup' : 'signin');
+});
+document.getElementById('auth-submit').addEventListener('click', async () => {
+  if (!supabaseClient) return;
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const errorEl = document.getElementById('auth-error');
+  const noticeEl = document.getElementById('auth-notice');
+  errorEl.classList.add('hidden');
+  noticeEl.classList.add('hidden');
+  if (!email || !password) {
+    errorEl.textContent = 'Enter an email and password.';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+
+  if (authMode === 'signup') {
+    const { data, error } = await supabaseClient.auth.signUp({ email, password });
+    if (error) { errorEl.textContent = error.message; errorEl.classList.remove('hidden'); return; }
+    if (data.session) {
+      closeAuthModal();
+    } else {
+      noticeEl.textContent = 'Check your email to confirm your account, then sign in.';
+      noticeEl.classList.remove('hidden');
+    }
+  } else {
+    const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (error) { errorEl.textContent = error.message; errorEl.classList.remove('hidden'); return; }
+    closeAuthModal();
+  }
+});
+
+async function loadPlanner() {
+  if (!currentUser) return { terms: [] };
+  const { data: terms } = await supabaseClient.from('planner_terms').select('*').order('position');
+  const { data: courses } = await supabaseClient.from('planner_courses').select('*');
+  return {
+    terms: (terms || []).map((t) => ({
+      id: t.id,
+      label: t.label,
+      courses: (courses || [])
+        .filter((c) => c.term_id === t.id)
+        .map((c) => ({ college: c.college, subject: c.subject, course_number: c.course_number, title: c.title, units: c.units })),
+    })),
+  };
 }
 
-function addSemester(label) {
-  const plan = loadPlanner();
-  plan.terms.push({ id: `t${Date.now()}${Math.random().toString(36).slice(2, 6)}`, label, courses: [] });
-  savePlanner(plan);
+async function addSemester(label) {
+  if (!currentUser) return openAuthModal('signin');
+  const { data: existing } = await supabaseClient
+    .from('planner_terms').select('position').order('position', { ascending: false }).limit(1);
+  const nextPosition = existing && existing.length ? existing[0].position + 1 : 0;
+  await supabaseClient.from('planner_terms').insert({ user_id: currentUser.id, label, position: nextPosition });
   renderPlanner();
 }
 
-function removeSemester(termId) {
-  const plan = loadPlanner();
-  plan.terms = plan.terms.filter((t) => t.id !== termId);
-  savePlanner(plan);
+async function removeSemester(termId) {
+  await supabaseClient.from('planner_terms').delete().eq('id', termId);
   renderPlanner();
 }
 
-function renameSemester(termId, label) {
-  const plan = loadPlanner();
-  const term = plan.terms.find((t) => t.id === termId);
-  if (term) term.label = label || term.label;
-  savePlanner(plan);
+async function renameSemester(termId, label) {
+  if (!label) return;
+  await supabaseClient.from('planner_terms').update({ label }).eq('id', termId);
 }
 
-function addCourseToTerm(termId, course) {
-  const plan = loadPlanner();
-  const term = plan.terms.find((t) => t.id === termId);
-  if (!term) return;
-  const exists = term.courses.some((c) => c.college === course.college && c.subject === course.subject && c.course_number === course.course_number);
-  if (!exists) term.courses.push(course);
-  savePlanner(plan);
+async function addCourseToTerm(termId, course) {
+  await supabaseClient.from('planner_courses').upsert(
+    {
+      term_id: termId, user_id: currentUser.id,
+      college: course.college, subject: course.subject, course_number: course.course_number,
+      title: course.title, units: course.units,
+    },
+    { onConflict: 'term_id,college,subject,course_number' }
+  );
   renderPlanner();
 }
 
-function removeCourseFromTerm(termId, college, subject, courseNumber) {
-  const plan = loadPlanner();
-  const term = plan.terms.find((t) => t.id === termId);
-  if (!term) return;
-  term.courses = term.courses.filter((c) => !(c.college === college && c.subject === subject && c.course_number === courseNumber));
-  savePlanner(plan);
+async function removeCourseFromTerm(termId, college, subject, courseNumber) {
+  await supabaseClient.from('planner_courses').delete()
+    .eq('term_id', termId).eq('college', college).eq('subject', subject).eq('course_number', courseNumber);
   renderPlanner();
 }
 
-function renderPlanner() {
-  const plan = loadPlanner();
+async function renderPlanner() {
+  const signedOutEl = document.getElementById('planner-signed-out');
+  const emptyEl = document.getElementById('planner-empty');
   const container = document.getElementById('planner-terms');
-  const empty = document.getElementById('planner-empty');
+  const addBtn = document.getElementById('planner-add-semester');
+  const subtitleEl = document.getElementById('planner-subtitle');
+
+  if (!currentUser) {
+    signedOutEl.classList.remove('hidden');
+    emptyEl.classList.add('hidden');
+    container.innerHTML = '';
+    document.getElementById('planner-total-units').textContent = '';
+    addBtn.disabled = true;
+    subtitleEl.textContent = 'Sign in to create and save your plan.';
+    return;
+  }
+  addBtn.disabled = false;
+  signedOutEl.classList.add('hidden');
+  subtitleEl.textContent = "Add classes to a semester from any course's Overview tab.";
+
+  const plan = await loadPlanner();
   container.innerHTML = '';
-  empty.classList.toggle('hidden', plan.terms.length > 0);
+  emptyEl.classList.toggle('hidden', plan.terms.length > 0);
 
   let totalUnits = 0;
   for (const term of plan.terms) {
@@ -394,8 +501,9 @@ function renderPlanner() {
   });
 }
 
-document.getElementById('planner-add-semester').addEventListener('click', () => {
-  const plan = loadPlanner();
+document.getElementById('planner-add-semester').addEventListener('click', async () => {
+  if (!currentUser) return openAuthModal('signin');
+  const plan = await loadPlanner();
   addSemester(`Semester ${plan.terms.length + 1}`);
 });
 
@@ -403,13 +511,14 @@ function closeAddToPlanMenu() {
   document.getElementById('add-to-plan-menu').classList.add('hidden');
 }
 
-document.getElementById('add-to-plan-btn').addEventListener('click', () => {
+document.getElementById('add-to-plan-btn').addEventListener('click', async () => {
   const menu = document.getElementById('add-to-plan-menu');
   const opening = menu.classList.contains('hidden');
   closeAddToPlanMenu();
   if (!opening || !currentCourse) return;
+  if (!currentUser) return openAuthModal('signin');
 
-  const plan = loadPlanner();
+  const plan = await loadPlanner();
   const inTermIds = new Set(
     plan.terms.filter((t) => t.courses.some((c) =>
       c.college === currentCourse.college && c.subject === currentCourse.subject && c.course_number === currentCourse.course_number
@@ -513,5 +622,6 @@ document.getElementById('prof-college').addEventListener('change', runProfessorS
   await loadRequirements();
   await runCourseSearch();
   await runProfessorSearch();
+  await initSupabase();
   renderPlanner();
 })();
