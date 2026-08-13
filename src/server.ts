@@ -14,7 +14,8 @@ import type {
 } from './types';
 
 const app = express();
-app.use(express.static(path.resolve(__dirname, '..', 'public')));
+const clientBuildDir = path.resolve(__dirname, 'client');
+app.use(express.static(clientBuildDir));
 app.use(express.json());
 
 // Supabase URL + anon key are safe to expose to the browser (the anon key is
@@ -360,6 +361,7 @@ app.get('/api/course/:college/:subject/:number', (req, res) => {
 
   res.json({
     college, subject, course_number: number, term,
+    term_desc: sections[0]?.term_desc ?? null,
     title: sections[0] ? sections[0].title : null,
     description: cat ? cat.description : null,
     corequisites: cat ? cat.corequisites : null,
@@ -440,6 +442,11 @@ app.post('/api/ratings', (req, res) => {
      FROM ratings WHERE instructor = ? AND college = ?`
   ).get(instructor, college);
   res.json(summary);
+});
+
+app.use((req, res, next) => {
+  if (req.method !== 'GET' || req.path.startsWith('/api/')) return next();
+  return res.sendFile(path.join(clientBuildDir, 'index.html'));
 });
 
 const PORT = process.env.PORT || 3000;

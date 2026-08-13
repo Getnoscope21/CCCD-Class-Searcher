@@ -59,8 +59,8 @@ live seat counts, so there's no need to run this as often as the light refresh.
 
 ## Deploying publicly
 
-This is a TypeScript Node/Express app with a framework-free TypeScript frontend
-and a local SQLite file -- it'll run on
+This is a TypeScript Node/Express app with a React + Vite frontend and a local
+SQLite file -- it'll run on
 any standard Node host (a small VPS, Render, Railway, Fly.io, etc.). Nothing
 here needs a database server, just disk space for `data.db`. Set the `PORT`
 env var if your host requires it.
@@ -94,14 +94,20 @@ data a minute or two later.
    - Plan: Free
    - Deploy. You'll get a public URL like `https://your-app.onrender.com`.
    - Confirm "Auto-Deploy" is enabled in the service settings (on by default)
-     so it redeploys automatically whenever the workflow pushes new data.
+    so it redeploys automatically whenever the workflow pushes new data.
 
+   Free-tier caveat: the service still spins down after 15 minutes idle
    Free-tier caveat: the service still spins down after 15 minutes idle
    (first visitor after that waits ~30-50s for a cold start), and since
    there's no persistent disk, anything written at runtime (new ratings,
    requirements) is lost on the next redeploy or restart. The scraped
    course/seat data isn't affected by that, since it's baked into each
    deploy via the committed `data.db` rather than written at runtime.
+
+For local UI development, `npm run dev` starts the Express API on port 3000 and
+the Vite development server on port 5173. Vite proxies `/api` requests to the
+local API server. Production remains a single Express process: `npm run build`
+creates the React bundle and `npm start` serves it.
 
 2. **GitHub Actions**: nothing to configure -- `.github/workflows/refresh.yml`
    already has the `contents: write` permission it needs to commit using the

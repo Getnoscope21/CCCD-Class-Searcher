@@ -226,8 +226,9 @@ footer {
 }
 .modal h3 { margin: 0 0 16px; font-size: 1.1rem; font-weight: 700; }
 .star-picker { font-size: 2rem; letter-spacing: 6px; cursor: pointer; margin-bottom: 14px; }
-.star-picker span { color: var(--star-empty); transition: color 0.1s ease; }
-.star-picker span.filled { color: var(--star); }
+.star-picker span, .star-picker button { color: var(--star-empty); transition: color 0.1s ease; }
+.star-picker span.filled, .star-picker button.filled { color: var(--star); }
+.star-picker button { border: 0; background: none; padding: 0; font: inherit; cursor: pointer; }
 .modal textarea {
   width: 100%; min-height: 76px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
   font-family: inherit; font-size: 0.9rem; resize: vertical; background: var(--bg); color: var(--text);
@@ -257,6 +258,9 @@ footer {
 .btn-primary:hover { filter: brightness(1.08); }
 .btn-secondary { background: var(--card); color: var(--text); }
 .btn-secondary:hover { background: var(--bg); }
+.text-button { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
+.inline-error { color: var(--closed); font-weight: 600; }
+.planner-course-units { font-weight: 400; color: var(--muted); }
 
 /* ---- Classes layout: sidebar + card grid ---- */
 .classes-layout { display: flex; gap: 20px; align-items: flex-start; }
@@ -329,6 +333,7 @@ footer {
   background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow);
   padding: 16px; cursor: pointer; transition: transform 0.12s ease, box-shadow 0.12s ease;
   display: flex; flex-direction: column; gap: 8px;
+  border: none; color: inherit; text-align: left; width: 100%; font: inherit;
 }
 .course-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
 .course-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
