@@ -1,7 +1,10 @@
-const cheerio = require('cheerio');
-const db = require('./db');
+import * as cheerio from 'cheerio';
+import type { AnyNode } from 'domhandler';
+import db from './db';
+import { ALL_GE_CODES } from './ge-requirements';
+import { errorMessage, type CollegeCode, type CourseSection } from './types';
 
-const COLLEGES = {
+export const COLLEGES: Readonly<Record<CollegeCode, string>> = {
   GW: 'Golden West College',
   OC: 'Orange Coast College',
   CL: 'Coastline Community College',
@@ -10,7 +13,12 @@ const COLLEGES = {
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
-async function fetchCatalogHtml(college, term, termDesc, attrib = '%') {
+async function fetchCatalogHtml(
+  college: CollegeCode,
+  term: string,
+  termDesc: string,
+  attrib = '%',
+): Promise<string> {
   const body = new URLSearchParams();
   body.append('TERM', term);
   body.append('TERM_DESC', termDesc);
@@ -56,7 +64,7 @@ async function fetchCatalogHtml(college, term, termDesc, attrib = '%') {
   return res.text();
 }
 
-function cellText($, el) {
+function cellText($: cheerio.CheerioAPI, el: AnyNode | cheerio.Cheerio<AnyNode>): string {
   return $(el).text().replace(/\s+/g, ' ').trim();
 }
 
@@ -64,9 +72,9 @@ function cellText($, el) {
 // count, then the combined cross-listed total) separated by <br>, e.g.
 // "<font>35</font><br><font>35</font>" for Cap. Plain .text() concatenates
 // both with no separator ("3535"), so pull only the first line's value.
-function firstLineText($, el) {
+function firstLineText($: cheerio.CheerioAPI, el: AnyNode | cheerio.Cheerio<AnyNode>): string {
   const html = $(el).html() || '';
-  const firstPart = html.split(/<br\s*\/?>/i)[0];
+  const firstPart = html.split(/<br\s*\/?>/i)[0] ?? '';
   return firstPart
     .replace(/<[^>]+>/g, '')
     .replace(/&nbsp;/gi, ' ')
@@ -74,20 +82,23 @@ function firstLineText($, el) {
     .trim();
 }
 
-function parseCatalog(html, college, term, termDesc) {
+export function parseCatalog(
+  html: string,
+  college: CollegeCode,
+  term: string,
+  termDesc: string,
+): CourseSection[] {
   const $ = cheerio.load(html);
   const rows = $('table tr').toArray();
 
-  let currentSubject = '';
-  let courses = [];
-  let currentCourse = null;
+  const courses: CourseSection[] = [];
+  let currentCourse: CourseSection | null = null;
 
   for (const row of rows) {
     const $row = $(row);
     const firstTd = $row.find('td').first();
 
     if (firstTd.hasClass('subject_header')) {
-      currentSubject = cellText($, firstTd).split(' - ')[0].trim();
       currentCourse = null;
       continue;
     }
@@ -110,7 +121,7 @@ function parseCatalog(html, college, term, termDesc) {
       // the middle is the meeting-time block, however many cells it took.
       const tds = $row.find('td').toArray();
       const texts = tds.map((td) => cellText($, td));
-      const toInt = (s) => {
+      const toInt = (s: string): number | null => {
         const n = parseInt(s, 10);
         return Number.isNaN(n) ? null : n;
       };
@@ -126,21 +137,21 @@ function parseCatalog(html, college, term, termDesc) {
         college,
         term,
         term_desc: termDesc,
-        subject: decodeURIComponent(m[1]),
-        course_number: decodeURIComponent(m[2]),
+        subject: decodeURIComponent(m[1] ?? ''),
+        course_number: decodeURIComponent(m[2] ?? ''),
         title: '',
-        crn: decodeURIComponent(m[4]),
+        crn: decodeURIComponent(m[4] ?? ''),
         status: texts[0] || '',
         credits: texts[4] || '',
         meeting_info: meetingCells.filter(Boolean).join(' '),
-        location,
+        location: location ?? '',
         cap: toInt(capS),
         act: toInt(actS),
         wl_cap: toInt(wlCapS),
         wl_act: toInt(wlActS),
-        instructor,
-        date_range: dateRange,
-        weeks,
+        instructor: instructor ?? '',
+        date_range: dateRange ?? '',
+        weeks: weeks ?? '',
       };
       courses.push(currentCourse);
     } else if (currentCourse) {
@@ -166,8 +177,9 @@ function parseCatalog(html, college, term, termDesc) {
       pendingTitle = dash >= 0 ? text.slice(dash + 3).trim() : text;
       continue;
     }
-    if ($row.find('a[href*="p_course_popup?"]').length && courses[idx]) {
-      courses[idx].title = pendingTitle;
+    const course = courses[idx];
+    if ($row.find('a[href*="p_course_popup?"]').length && course) {
+      course.title = pendingTitle;
       idx++;
     }
   }
@@ -175,7 +187,7 @@ function parseCatalog(html, college, term, termDesc) {
   return courses;
 }
 
-function decodeEntities(s) {
+function decodeEntities(s: string): string {
   return s
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
@@ -185,33 +197,45 @@ function decodeEntities(s) {
     .replace(/&quot;/g, '"');
 }
 
-function stripTags(s) {
+function stripTags(s: string): string {
   return decodeEntities(s.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 }
 
-function parseCoursePopup(html) {
-  let description = null;
-  let transferCredit = null;
-  let corequisites = null;
+interface CoursePopup {
+  description: string | null;
+  transferCredit: string | null;
+  corequisites: string | null;
+}
+
+export function parseCoursePopup(html: string): CoursePopup {
+  let description: string | null = null;
+  let transferCredit: string | null = null;
+  let corequisites: string | null = null;
 
   const descMatch = html.match(/Course Description:<br>([\s\S]*?)<p>\s*<td/i);
   if (descMatch) {
-    let raw = descMatch[1];
+    let raw = descMatch[1] ?? '';
     const tcMatch = raw.match(/Transfer Credit:\s*([^\n<]*)/i);
     if (tcMatch) {
-      transferCredit = stripTags(tcMatch[1]);
+      transferCredit = stripTags(tcMatch[1] ?? '');
       raw = raw.replace(tcMatch[0], '');
     }
     description = stripTags(raw) || null;
   }
 
   const coreqMatch = html.match(/Corequisites:\s*([^<\r\n]*)/i);
-  if (coreqMatch) corequisites = stripTags(coreqMatch[1]) || null;
+  if (coreqMatch) corequisites = stripTags(coreqMatch[1] ?? '') || null;
 
   return { description, transferCredit, corequisites };
 }
 
-async function fetchCoursePopup(college, subject, courseNumber, term, crn) {
+async function fetchCoursePopup(
+  college: CollegeCode,
+  subject: string,
+  courseNumber: string,
+  term: string,
+  crn: string,
+): Promise<CoursePopup> {
   const url =
     `https://ssb-prod.ec.cccd.edu/PROD/pw_pub_sched.p_course_popup?vsub=${encodeURIComponent(subject)}` +
     `&vcrse=${encodeURIComponent(courseNumber)}&vterm=${encodeURIComponent(term)}&vcrn=${encodeURIComponent(crn)}&vcoll=${encodeURIComponent(college)}`;
@@ -220,18 +244,36 @@ async function fetchCoursePopup(college, subject, courseNumber, term, crn) {
   return parseCoursePopup(html);
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+interface ProgressOptions {
+  onProgress?: (done: number, total: number) => void;
+}
+
+interface DescriptionOptions extends ProgressOptions {
+  delayMs?: number;
+}
+
+interface CourseLookup {
+  college: CollegeCode;
+  subject: string;
+  course_number: string;
+  crn: string;
+}
 
 // Descriptions are per-course, not per-section, so we fetch one representative
 // CRN per (college, subject, course_number) rather than every section -- keeps
 // this to a few hundred requests instead of one per section, and we sleep
 // between each to stay polite to CCCD's server (same spirit as the main scrape).
-async function scrapeDescriptions(term, { delayMs = 250, onProgress } = {}) {
+export async function scrapeDescriptions(
+  term: string,
+  { delayMs = 250, onProgress }: DescriptionOptions = {},
+): Promise<number> {
   const courses = db.prepare(`
     SELECT college, subject, course_number, MIN(crn) as crn
     FROM courses WHERE term = ?
     GROUP BY college, subject, course_number
-  `).all(term);
+  `).all(term) as CourseLookup[];
 
   const upsert = db.prepare(`
     INSERT INTO course_catalog (college, term, subject, course_number, description, corequisites, transfer_credit, updated_at)
@@ -249,8 +291,8 @@ async function scrapeDescriptions(term, { delayMs = 250, onProgress } = {}) {
         college: c.college, term, subject: c.subject, course_number: c.course_number,
         description: info.description, corequisites: info.corequisites, transfer_credit: info.transferCredit,
       });
-    } catch (e) {
-      console.error(`Description fetch failed for ${c.college} ${c.subject} ${c.course_number}: ${e.message}`);
+    } catch (error) {
+      console.error(`Description fetch failed for ${c.college} ${c.subject} ${c.course_number}: ${errorMessage(error)}`);
     }
     done++;
     if (onProgress) onProgress(done, courses.length);
@@ -264,8 +306,11 @@ async function scrapeDescriptions(term, { delayMs = 250, onProgress } = {}) {
 // filtered to just that code and record which courses came back. One request
 // per (college, code) -- ~11 codes x 3 colleges -- run only during the full
 // refresh, not the frequent light one, since it's not urgent/live data.
-async function scrapeGeTags(term, termDesc, { onProgress } = {}) {
-  const { ALL_GE_CODES } = require('./ge-requirements');
+export async function scrapeGeTags(
+  term: string,
+  termDesc: string,
+  { onProgress }: ProgressOptions = {},
+): Promise<number> {
   const upsert = db.prepare(`
     INSERT OR IGNORE INTO course_ge_tags (college, term, subject, course_number, code) VALUES (?, ?, ?, ?, ?)
   `);
@@ -273,7 +318,7 @@ async function scrapeGeTags(term, termDesc, { onProgress } = {}) {
 
   let done = 0;
   const total = ALL_GE_CODES.length * Object.keys(COLLEGES).length;
-  for (const college of Object.keys(COLLEGES)) {
+  for (const college of Object.keys(COLLEGES) as CollegeCode[]) {
     for (const code of ALL_GE_CODES) {
       try {
         const html = await fetchCatalogHtml(college, term, termDesc, code);
@@ -285,8 +330,8 @@ async function scrapeGeTags(term, termDesc, { onProgress } = {}) {
           seen.add(key);
           upsert.run(college, term, c.subject, c.course_number, code);
         }
-      } catch (e) {
-        console.error(`GE tag fetch failed for ${college} ${code}: ${e.message}`);
+      } catch (error) {
+        console.error(`GE tag fetch failed for ${college} ${code}: ${errorMessage(error)}`);
       }
       done++;
       if (onProgress) onProgress(done, total);
@@ -296,7 +341,11 @@ async function scrapeGeTags(term, termDesc, { onProgress } = {}) {
   return done;
 }
 
-async function scrapeCollege(college, term, termDesc) {
+export async function scrapeCollege(
+  college: CollegeCode,
+  term: string,
+  termDesc: string,
+): Promise<number> {
   const html = await fetchCatalogHtml(college, term, termDesc);
   const courses = parseCatalog(html, college, term, termDesc);
 
@@ -315,7 +364,7 @@ async function scrapeCollege(college, term, termDesc) {
       weeks=excluded.weeks, updated_at=excluded.updated_at
   `);
 
-  const insertMany = db.transaction((rows) => {
+  const insertMany = db.transaction((rows: CourseSection[]) => {
     for (const c of rows) upsert.run(c);
   });
   insertMany(courses);
@@ -329,11 +378,11 @@ async function main() {
   const termDesc = process.argv[3] || 'Fall 2026';
   const skipDescriptions = process.argv.includes('--skip-descriptions');
   let total = 0;
-  for (const college of Object.keys(COLLEGES)) {
+  for (const college of Object.keys(COLLEGES) as CollegeCode[]) {
     try {
       total += await scrapeCollege(college, term, termDesc);
-    } catch (e) {
-      console.error(`Failed for ${college}: ${e.message}`);
+    } catch (error) {
+      console.error(`Failed for ${college}: ${errorMessage(error)}`);
     }
   }
   console.log(`Done. ${total} total sections stored for ${termDesc}.`);
@@ -341,7 +390,7 @@ async function main() {
   if (!skipDescriptions) {
     console.log('Fetching course descriptions (one request per unique course, politely paced)...');
     const n = await scrapeDescriptions(term, {
-      onProgress: (done, of) => {
+      onProgress: (done: number, of: number) => {
         if (done % 50 === 0 || done === of) console.log(`  descriptions: ${done}/${of}`);
       },
     });
@@ -349,7 +398,7 @@ async function main() {
 
     console.log('Fetching GE requirement tags...');
     const g = await scrapeGeTags(term, termDesc, {
-      onProgress: (done, of) => {
+      onProgress: (done: number, of: number) => {
         if (done % 10 === 0 || done === of) console.log(`  GE tags: ${done}/${of}`);
       },
     });
@@ -358,7 +407,5 @@ async function main() {
 }
 
 if (require.main === module) {
-  main();
+  void main();
 }
-
-module.exports = { scrapeCollege, parseCatalog, scrapeDescriptions, scrapeGeTags, parseCoursePopup, COLLEGES };

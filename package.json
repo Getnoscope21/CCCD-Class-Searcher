@@ -1,10 +1,19 @@
 {
   "name": "gwc-classfinder",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Class and professor search for Coast Community College District",
+  "main": "dist/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.client.json",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit",
+    "predev": "npm run build",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "scrape": "tsx src/scraper.ts",
+    "test": "npm run check"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "keywords": [],
   "author": "",
@@ -13,5 +22,12 @@
     "better-sqlite3": "^13.0.3",
     "cheerio": "^1.2.0",
     "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.2.0",
+    "tsx": "^4.23.12",
+    "typescript": "^7.0.2"
   }
 }

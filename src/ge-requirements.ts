@@ -3,7 +3,9 @@
 // the unified CALGETC/IGETC codes here (not the ~40 CSU-specific sub-areas
 // or the military program codes also present in that dropdown) to keep this
 // short and legible, similar in spirit to Berkeleytime's Requirements filter.
-const REQUIREMENT_CATEGORIES = [
+import type { RequirementCategory } from './types';
+
+export const REQUIREMENT_CATEGORIES: readonly RequirementCategory[] = [
   { key: 'english-comp', label: 'English Composition (Entry-Level Writing)', codes: ['1A'] },
   { key: 'critical-thinking', label: 'Critical Thinking', codes: ['1B'] },
   { key: 'oral-comm', label: 'Oral Communication', codes: ['1C', '1CCG'] },
@@ -17,6 +19,4 @@ const REQUIREMENT_CATEGORIES = [
   { key: 'language-other-than-english', label: 'Language Other Than English', codes: ['6A'] },
 ];
 
-const ALL_GE_CODES = [...new Set(REQUIREMENT_CATEGORIES.flatMap((c) => c.codes))];
-
-module.exports = { REQUIREMENT_CATEGORIES, ALL_GE_CODES };
+export const ALL_GE_CODES = [...new Set(REQUIREMENT_CATEGORIES.flatMap((category) => category.codes))];

@@ -29,15 +29,17 @@ data from the district's own public schedule search system.
 `ssb-prod.ec.cccd.edu` -- CCCD's public Banner self-service schedule search, the
 same system all three colleges link to from their own "Class Schedule" pages.
 It's a public, unauthenticated system with no bot protection, intended for
-prospective students to browse. `scraper.js` submits the same search form the
+prospective students to browse. `src/scraper.ts` submits the same search form the
 public website form does and parses the results table.
 
 ## Setup
 
-```
+```bash
+nvm use                        # uses Node 22 from .nvmrc
 npm install
-node scraper.js 202670 "Fall 2026"   # populates data.db -- rerun periodically to refresh
-node server.js                        # starts the web app on :3000
+npm run scrape -- 202670 "Fall 2026" # populates data.db; rerun periodically
+npm run build
+npm start                      # starts the web app on :3000
 ```
 
 Then open `http://localhost:3000`.
@@ -45,7 +47,7 @@ Then open `http://localhost:3000`.
 ## Refreshing data
 
 Course data (seats, status, open/closed) changes throughout registration.
-Re-run `node scraper.js <term> "<term desc>"` on a schedule (e.g. a cron job
+Re-run `npm run scrape -- <term> "<term desc>"` on a schedule (e.g. a cron job
 every few hours) to keep it current. Term codes come from the college's own
 "Class Schedule" page dropdown (format: YYYYNN, e.g. `202670` = Fall 2026).
 
@@ -57,7 +59,8 @@ live seat counts, so there's no need to run this as often as the light refresh.
 
 ## Deploying publicly
 
-This is a plain Node/Express app with a local SQLite file -- it'll run on
+This is a TypeScript Node/Express app with a framework-free TypeScript frontend
+and a local SQLite file -- it'll run on
 any standard Node host (a small VPS, Render, Railway, Fly.io, etc.). Nothing
 here needs a database server, just disk space for `data.db`. Set the `PORT`
 env var if your host requires it.
@@ -86,8 +89,8 @@ auto-deploys on every push to `main` by default, which picks up the fresh
 data a minute or two later.
 
 1. **Render** (render.com): New → Web Service → connect this GitHub repo.
-   - Build command: `npm install`
-   - Start command: `node server.js`
+   - Build command: `npm install && npm run build`
+   - Start command: `npm start`
    - Plan: Free
    - Deploy. You'll get a public URL like `https://your-app.onrender.com`.
    - Confirm "Auto-Deploy" is enabled in the service settings (on by default)
@@ -108,7 +111,7 @@ data a minute or two later.
 
 For always-on hosting without these tradeoffs (no cold starts, no data loss,
 reuses the exact same cron approach used locally), a small VPS (~$5-6/month)
-is the simpler and more reliable option -- just `git clone`, `npm install`,
+is the simpler and more reliable option -- just `git clone`, `npm install && npm run build`,
 `crontab` the same refresh commands from the section above, and run the
 server behind a process manager like `pm2` or a systemd unit.
 

@@ -1,4 +1,4 @@
-const COLLEGE_NAMES = { GW: 'Golden West', OC: 'Orange Coast', CL: 'Coastline' };
+const COLLEGE_NAMES = { GW: 'Golden West', OC: 'Orange Coast', CL: 'Coastline' } as const;
 
 async function loadColleges() {
   const colleges = await fetch('/api/colleges').then((r) => r.json());
@@ -72,9 +72,9 @@ const SLIDER_MAX = 5;
 function renderUnitSlider() {
   let lo = Number(unitsMinEl.value);
   let hi = Number(unitsMaxEl.value);
-  if (lo > hi) { [lo, hi] = [hi, lo]; unitsMinEl.value = lo; unitsMaxEl.value = hi; }
-  unitsMinLabel.textContent = lo;
-  unitsMaxLabel.textContent = hi >= SLIDER_MAX ? `${SLIDER_MAX}+` : hi;
+  if (lo > hi) { [lo, hi] = [hi, lo]; unitsMinEl.value = String(lo); unitsMaxEl.value = String(hi); }
+  unitsMinLabel.textContent = String(lo);
+  unitsMaxLabel.textContent = hi >= SLIDER_MAX ? `${SLIDER_MAX}+` : String(hi);
   const loPct = (lo / SLIDER_MAX) * 100;
   const hiPct = (hi / SLIDER_MAX) * 100;
   unitsRangeBar.style.left = `${loPct}%`;
@@ -103,8 +103,8 @@ async function runCourseSearch() {
   if (requirement) params.set('requirement', requirement);
   if (modality) params.set('modality', modality);
   if (sort) params.set('sort', sort);
-  if (unitsMin > 0) params.set('units_min', unitsMin);
-  if (unitsMax < SLIDER_MAX) params.set('units_max', unitsMax);
+  if (unitsMin > 0) params.set('units_min', String(unitsMin));
+  if (unitsMax < SLIDER_MAX) params.set('units_max', String(unitsMax));
   if (checkedStatuses.length < allStatuses) params.set('statuses', checkedStatuses.join(','));
 
   const countEl = document.getElementById('classes-count');

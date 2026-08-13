@@ -16,13 +16,16 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install dependencies
-        run: npm install --omit=dev
+        run: npm ci
+
+      - name: Compile TypeScript
+        run: npm run build
 
       - name: Scrape latest seats/status (skips descriptions -- those rarely change)
-        run: node scraper.js 202670 "Fall 2026" --skip-descriptions
+        run: npm run scrape -- 202670 "Fall 2026" --skip-descriptions
 
       - name: Checkpoint SQLite WAL into data.db
         run: |
