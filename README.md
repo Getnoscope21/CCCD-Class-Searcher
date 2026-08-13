@@ -66,6 +66,7 @@ here needs a database server, just disk space for `data.db`. Set the `PORT`
 env var if your host requires it.
 
 Before making this public, worth doing:
+
 - Add basic rate limiting (e.g. `express-rate-limit`) so the app itself
   doesn't become a way to hammer CCCD's system indirectly
 - Keep the scraper's request rate polite (it's already just 3 requests per
@@ -94,15 +95,15 @@ data a minute or two later.
    - Plan: Free
    - Deploy. You'll get a public URL like `https://your-app.onrender.com`.
    - Confirm "Auto-Deploy" is enabled in the service settings (on by default)
-    so it redeploys automatically whenever the workflow pushes new data.
+     so it redeploys automatically whenever the workflow pushes new data.
 
    Free-tier caveat: the service still spins down after 15 minutes idle
-   Free-tier caveat: the service still spins down after 15 minutes idle
    (first visitor after that waits ~30-50s for a cold start), and since
-   there's no persistent disk, anything written at runtime (new ratings,
-   requirements) is lost on the next redeploy or restart. The scraped
-   course/seat data isn't affected by that, since it's baked into each
-   deploy via the committed `data.db` rather than written at runtime.
+   there's no persistent disk, the local cache mirror of ratings and
+   requirements resets on the next redeploy or restart. Their durable source
+   is Supabase, so the server repopulates new user submissions through that
+   service. The scraped course/seat data isn't affected because it is baked
+   into each deploy via the committed `data.db`.
 
 For local UI development, `npm run dev` starts the Express API on port 3000 and
 the Vite development server on port 5173. Vite proxies `/api` requests to the
@@ -123,17 +124,18 @@ server behind a process manager like `pm2` or a systemd unit.
 
 ### Accounts and the Planner (Supabase)
 
-Unlike ratings/requirements (still local SQLite, still wiped on Render
-redeploy per the caveat above), sign-in and Planner data live in a separate
-Supabase project (hosted Postgres + auth) and are unaffected by Render
-redeploys/restarts entirely.
+Sign-in, Planner data, ratings, and course requirements live in Supabase
+(hosted Postgres + auth), and are unaffected by Render redeploys/restarts.
+The local SQLite file remains the cache for scraped course data and an
+immediate display mirror for newly submitted user content.
 
 Setup:
 
 1. Create a free project at supabase.com.
 2. In the project's SQL Editor, run `supabase-schema.sql` from this repo once
-   -- creates the `planner_terms`/`planner_courses` tables with Row Level
-   Security policies so each user can only ever see their own rows.
+   -- creates Planner, rating, and requirement tables with Row Level Security
+   policies. Planner rows are private to each user; ratings and requirements
+   are publicly readable but may only be submitted by signed-in users.
 3. From Project Settings -> API, copy the Project URL and the publishable
    (anon) key -- never the secret/service_role key, which must never be
    exposed to the browser.
@@ -147,8 +149,8 @@ Setup:
    outgoing email is rate-limited and several signups close together can
    leave people waiting on a confirmation email that's slow to arrive.
 
-Without these env vars set, the app still runs fine -- sign-in/Planner UI
-just stays inactive (`/api/config` returns nulls, and the frontend no-ops).
+Without these env vars set, search still runs, but sign-in, Planner, ratings,
+and requirements are intentionally unavailable (`/api/config` returns nulls).
 
 ## On professor ratings
 

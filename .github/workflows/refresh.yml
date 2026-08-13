@@ -2,7 +2,7 @@ name: Refresh live class data
 
 on:
   schedule:
-    - cron: '*/20 * * * *'
+    - cron: "*/20 * * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -21,8 +21,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Compile TypeScript
-        run: npm run build
+      - name: Validate application
+        run: npm test
 
       - name: Scrape latest seats/status (skips descriptions -- those rarely change)
         run: npm run scrape -- 202670 "Fall 2026" --skip-descriptions

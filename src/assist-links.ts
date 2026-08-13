@@ -5,9 +5,13 @@
 // bulk-data access isn't licensed until 2026-2027, so this project does not
 // pull articulation data itself -- it only links out, same pattern as the
 // RateMyProfessor links.
-import type { CollegeCode } from './types';
+import type { CollegeCode } from "./types";
 
-const ASSIST_INSTITUTION_IDS: Record<CollegeCode, number> = { GW: 55, OC: 74, CL: 105 };
+const ASSIST_INSTITUTION_IDS: Record<CollegeCode, number> = {
+  GW: 55,
+  OC: 74,
+  CL: 105,
+};
 const ASSIST_YEAR_ID = 77; // 2026-2027 academic year -- update yearly
 
 export function assistTransferabilityUrl(college: string): string | null {

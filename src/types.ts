@@ -1,6 +1,6 @@
-export type CollegeCode = 'GW' | 'OC' | 'CL';
+export type CollegeCode = "GW" | "OC" | "CL";
 
-export type Modality = 'Live Online' | 'Online' | 'TBA' | 'In-Person';
+export type Modality = "Live Online" | "Online" | "TBA" | "In-Person";
 
 export interface CourseSection {
   id?: number;
