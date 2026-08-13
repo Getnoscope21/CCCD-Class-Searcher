@@ -1,5 +1,54 @@
 const COLLEGE_NAMES = { GW: 'Golden West', OC: 'Orange Coast', CL: 'Coastline' } as const;
 
+const THEME_STORAGE_KEY = 'cccd-theme';
+
+function savedTheme() {
+  try {
+    const theme = localStorage.getItem(THEME_STORAGE_KEY);
+    return theme === 'light' || theme === 'dark' ? theme : null;
+  } catch {
+    return null;
+  }
+}
+
+function systemTheme() {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function updateThemeToggle() {
+  const theme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+  const toggle = document.getElementById('theme-toggle');
+  const nextTheme = theme === 'dark' ? 'light' : 'dark';
+  toggle.setAttribute('aria-pressed', String(theme === 'dark'));
+  toggle.setAttribute('aria-label', `Switch to ${nextTheme} mode`);
+  toggle.setAttribute('title', `Switch to ${nextTheme} mode`);
+}
+
+function applyTheme(theme, persist = false) {
+  document.documentElement.dataset.theme = theme;
+  if (persist) {
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // Theme switching still works if storage is unavailable.
+    }
+  }
+  updateThemeToggle();
+}
+
+function initThemeToggle() {
+  const toggle = document.getElementById('theme-toggle');
+  updateThemeToggle();
+  toggle.addEventListener('click', () => {
+    const currentTheme = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+    applyTheme(currentTheme === 'dark' ? 'light' : 'dark', true);
+  });
+
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (!savedTheme()) applyTheme(systemTheme());
+  });
+}
+
 async function loadColleges() {
   const colleges = await fetch('/api/colleges').then((r) => r.json());
   for (const sel of [document.getElementById('college'), document.getElementById('prof-college')]) {
@@ -618,6 +667,7 @@ document.getElementById('prof-q').addEventListener('input', () => { clearTimeout
 document.getElementById('prof-college').addEventListener('change', runProfessorSearch);
 
 (async function init() {
+  initThemeToggle();
   await loadColleges();
   await loadRequirements();
   await runCourseSearch();
