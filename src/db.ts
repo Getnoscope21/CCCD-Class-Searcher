@@ -1,8 +1,8 @@
-const Database = require('better-sqlite3');
-const path = require('path');
+import Database from "better-sqlite3";
+import path from "node:path";
 
-const db = new Database(path.join(__dirname, 'data.db'));
-db.pragma('journal_mode = WAL');
+const db = new Database(path.resolve(__dirname, "..", "data.db"));
+db.pragma("journal_mode = WAL");
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS courses (
@@ -76,4 +76,4 @@ CREATE TABLE IF NOT EXISTS course_ge_tags (
 CREATE INDEX IF NOT EXISTS idx_course_ge_tags_lookup ON course_ge_tags(term, code);
 `);
 
-module.exports = db;
+export default db;
