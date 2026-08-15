@@ -72,6 +72,7 @@ export interface Instructor extends RatingSummary {
 }
 
 export interface AppConfig {
+  authConfigured: boolean;
   supabaseUrl: string | null;
   supabaseAnonKey: string | null;
 }

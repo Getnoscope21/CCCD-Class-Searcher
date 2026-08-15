@@ -27,9 +27,9 @@ export const api = {
     request<CourseCard[]>(`/api/course-cards?${params}`),
   instructors: (params: URLSearchParams) =>
     request<Instructor[]>(`/api/instructors?${params}`),
-  course: (college: string, subject: string, number: string) =>
+  course: (college: string, subject: string, number: string, term?: string) =>
     request<CourseDetail>(
-      `/api/course/${encodeURIComponent(college)}/${encodeURIComponent(subject)}/${encodeURIComponent(number)}`,
+      `/api/course/${encodeURIComponent(college)}/${encodeURIComponent(subject)}/${encodeURIComponent(number)}${term ? `?term=${encodeURIComponent(term)}` : ""}`,
     ),
   addRequirement: (body: {
     college: string;

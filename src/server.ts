@@ -46,16 +46,28 @@ app.use(
   }),
 );
 app.use(express.static(clientBuildDir));
-app.use(express.json());
+app.use(express.json({ limit: "16kb" }));
+app.use("/api", (req, res, next) => {
+  if (Object.values(req.query).some((value) => typeof value !== "string")) {
+    return res.status(400).json({ error: "Query parameters must be singular" });
+  }
+  return next();
+});
 
 // Supabase URL + anon key are safe to expose to the browser (the anon key is
 // meant to be public -- real access control happens via Row Level Security
 // policies in Supabase, not by hiding this key). Frontend fetches this once
 // on load instead of the values being hardcoded into committed JS.
 app.get("/api/config", (req, res) => {
+  const supabaseUrl = process.env.SUPABASE_URL || null;
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || null;
+  const authConfigured = Boolean(supabaseUrl && supabaseAnonKey);
   res.json({
-    supabaseUrl: process.env.SUPABASE_URL || null,
-    supabaseAnonKey: process.env.SUPABASE_ANON_KEY || null,
+    authConfigured,
+    // Never return a partial configuration. The anon key is designed to be
+    // public; authorization remains enforced by Supabase RLS policies.
+    supabaseUrl: authConfigured ? supabaseUrl : null,
+    supabaseAnonKey: authConfigured ? supabaseAnonKey : null,
   });
 });
 
@@ -155,6 +167,41 @@ interface RequirementCount {
 
 type Query = Record<string, string | undefined>;
 
+const COLLEGE_CODES = new Set(Object.keys(COLLEGES));
+const MODALITIES = new Set<Modality>([
+  "Live Online",
+  "Online",
+  "TBA",
+  "In-Person",
+]);
+const COURSE_STATUSES = new Set(["OPEN", "Waitlisted", "CLOSED"]);
+
+function isValidCollege(value: string | undefined): boolean {
+  return value === undefined || COLLEGE_CODES.has(value);
+}
+
+function isValidModality(value: string | undefined): boolean {
+  return value === undefined || MODALITIES.has(value as Modality);
+}
+
+function boundedNumber(
+  value: string | undefined,
+  minimum: number,
+  maximum: number,
+): number | null | undefined {
+  if (value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum
+    ? parsed
+    : undefined;
+}
+
+function nonEmptyString(value: unknown, maximum: number): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized ? normalized.slice(0, maximum) : null;
+}
+
 interface CourseGroup {
   college: CollegeCode;
   subject: string;
@@ -231,6 +278,8 @@ app.get("/api/terms", (req, res) => {
 
 app.get("/api/subjects", (req, res) => {
   const { college, term } = req.query as Query;
+  if (!isValidCollege(college))
+    return res.status(400).json({ error: "Unknown college" });
   let sql = `SELECT DISTINCT subject FROM courses WHERE 1=1`;
   const params: SqlValue[] = [];
   if (college) {
@@ -249,6 +298,10 @@ app.get("/api/subjects", (req, res) => {
 app.get("/api/search", (req, res) => {
   const { q, college, subject, instructor, term, open_only, modality } =
     req.query as Query;
+  if (!isValidCollege(college))
+    return res.status(400).json({ error: "Unknown college" });
+  if (!isValidModality(modality))
+    return res.status(400).json({ error: "Unknown modality" });
   let sql = `SELECT * FROM courses WHERE 1=1`;
   const params: SqlValue[] = [];
 
@@ -316,6 +369,23 @@ app.get("/api/course-cards", (req, res) => {
   const term = query.term || defaultTerm();
   if (!term) return res.json([]);
 
+  if (!isValidCollege(college))
+    return res.status(400).json({ error: "Unknown college" });
+  if (!isValidModality(modality))
+    return res.status(400).json({ error: "Unknown modality" });
+
+  const allowedSorts = new Set([
+    "relevance",
+    "units",
+    "rating",
+    "seats",
+    "requirements",
+    "semester",
+    "datetime",
+  ]);
+  if (sort && !allowedSorts.has(sort))
+    return res.status(400).json({ error: "Unknown sort order" });
+
   let sql = `SELECT * FROM courses WHERE term = ?`;
   const params: SqlValue[] = [term];
   if (college) {
@@ -328,6 +398,8 @@ app.get("/api/course-cards", (req, res) => {
   }
   if (statuses) {
     const list = statuses.split(",").filter(Boolean);
+    if (list.some((status) => !COURSE_STATUSES.has(status)))
+      return res.status(400).json({ error: "Unknown course status" });
     if (list.length) {
       sql += ` AND status IN (${list.map(() => "?").join(",")})`;
       params.push(...list);
@@ -348,10 +420,14 @@ app.get("/api/course-cards", (req, res) => {
     sql += ` AND TRIM(location) != '' AND UPPER(location) NOT LIKE '%ONLINE%'`;
   }
 
-  const unitsMin =
-    units_min !== undefined && units_min !== "" ? Number(units_min) : null;
-  const unitsMax =
-    units_max !== undefined && units_max !== "" ? Number(units_max) : null;
+  const unitsMin = boundedNumber(units_min, 0, 99);
+  const unitsMax = boundedNumber(units_max, 0, 99);
+  if (unitsMin === undefined || unitsMax === undefined)
+    return res.status(400).json({ error: "Units must be between 0 and 99" });
+  if (unitsMin !== null && unitsMax !== null && unitsMin > unitsMax)
+    return res
+      .status(400)
+      .json({ error: "Minimum units cannot exceed maximum units" });
   if (unitsMin !== null) {
     sql += ` AND CAST(credits AS REAL) >= ?`;
     params.push(unitsMin);
@@ -365,22 +441,22 @@ app.get("/api/course-cards", (req, res) => {
 
   if (requirement) {
     const category = REQUIREMENT_CATEGORIES.find((c) => c.key === requirement);
-    if (category) {
-      const tagRows = db
-        .prepare(
-          `SELECT DISTINCT college, subject, course_number FROM course_ge_tags
+    if (!category)
+      return res.status(400).json({ error: "Unknown GE requirement" });
+    const tagRows = db
+      .prepare(
+        `SELECT DISTINCT college, subject, course_number FROM course_ge_tags
          WHERE term = ? AND code IN (${category.codes.map(() => "?").join(",")})`,
-        )
-        .all(term, ...category.codes) as Array<
-        Pick<CourseSection, "college" | "subject" | "course_number">
-      >;
-      const allowed = new Set(
-        tagRows.map((t) => `${t.college}|${t.subject}|${t.course_number}`),
-      );
-      rows = rows.filter((r) =>
-        allowed.has(`${r.college}|${r.subject}|${r.course_number}`),
-      );
-    }
+      )
+      .all(term, ...category.codes) as Array<
+      Pick<CourseSection, "college" | "subject" | "course_number">
+    >;
+    const allowed = new Set(
+      tagRows.map((t) => `${t.college}|${t.subject}|${t.course_number}`),
+    );
+    rows = rows.filter((r) =>
+      allowed.has(`${r.college}|${r.subject}|${r.course_number}`),
+    );
   }
 
   const ratingsMap = ratingsSummary();
@@ -508,6 +584,8 @@ app.get("/api/course-cards", (req, res) => {
 
 app.get("/api/course/:college/:subject/:number", (req, res) => {
   const { college, subject, number } = req.params;
+  if (!isValidCollege(college))
+    return res.status(400).json({ error: "Unknown college" });
   const term = (req.query as Query).term || defaultTerm();
   if (!term)
     return res.status(404).json({ error: "No course terms are available" });
@@ -517,6 +595,8 @@ app.get("/api/course/:college/:subject/:number", (req, res) => {
      ORDER BY crn`,
     )
     .all(college, subject, number, term) as CourseSection[];
+  if (!sections.length)
+    return res.status(404).json({ error: "Course not found" });
 
   const ratingsMap = ratingsSummary();
   const cat = db
@@ -554,27 +634,45 @@ app.get("/api/course/:college/:subject/:number", (req, res) => {
 
 app.post("/api/course-requirements", (req, res) => {
   const { college, subject, course_number, text } = req.body || {};
-  const trimmed = (text || "").trim();
-  if (!college || !subject || !course_number || !trimmed) {
+  const normalizedCollege = nonEmptyString(college, 2);
+  const normalizedSubject = nonEmptyString(subject, 20);
+  const normalizedNumber = nonEmptyString(course_number, 20);
+  const trimmed = nonEmptyString(text, 500);
+  if (
+    !normalizedCollege ||
+    !isValidCollege(normalizedCollege) ||
+    !normalizedSubject ||
+    !normalizedNumber ||
+    !trimmed
+  ) {
     return res.status(400).json({
       error: "college, subject, course_number, and text are required",
     });
   }
+  const courseExists = db
+    .prepare(
+      `SELECT 1 FROM courses
+       WHERE college = ? AND subject = ? AND course_number = ? LIMIT 1`,
+    )
+    .get(normalizedCollege, normalizedSubject, normalizedNumber);
+  if (!courseExists) return res.status(404).json({ error: "Course not found" });
   db.prepare(
     `INSERT INTO course_requirements (college, subject, course_number, requirement_text) VALUES (?, ?, ?, ?)`,
-  ).run(college, subject, course_number, trimmed.slice(0, 500));
+  ).run(normalizedCollege, normalizedSubject, normalizedNumber, trimmed);
 
   const requirements = db
     .prepare(
       `SELECT id, requirement_text, created_at FROM course_requirements
      WHERE college = ? AND subject = ? AND course_number = ? ORDER BY created_at DESC`,
     )
-    .all(college, subject, course_number);
+    .all(normalizedCollege, normalizedSubject, normalizedNumber);
   res.json({ requirements });
 });
 
 app.get("/api/instructors", (req, res) => {
   const { q, college, term } = req.query as Query;
+  if (!isValidCollege(college))
+    return res.status(400).json({ error: "Unknown college" });
   let sql = `SELECT instructor, college, COUNT(*) as section_count
              FROM courses WHERE instructor != '' AND instructor IS NOT NULL`;
   const params: SqlValue[] = [];
@@ -604,11 +702,18 @@ app.get("/api/instructors", (req, res) => {
 
 app.get("/api/instructor/:name", (req, res) => {
   const { college } = req.query as Query;
-  const rows = db
-    .prepare(
-      `SELECT * FROM courses WHERE instructor = ? ORDER BY term DESC, subject, course_number`,
-    )
-    .all(req.params.name) as CourseSection[];
+  if (!isValidCollege(college))
+    return res.status(400).json({ error: "Unknown college" });
+  let sql = `SELECT * FROM courses WHERE instructor = ?`;
+  const params: SqlValue[] = [req.params.name];
+  if (college) {
+    sql += ` AND college = ?`;
+    params.push(college);
+  }
+  sql += ` ORDER BY term DESC, subject, course_number`;
+  const rows = db.prepare(sql).all(...params) as CourseSection[];
+  if (!rows.length)
+    return res.status(404).json({ error: "Instructor not found" });
   const ratingRows = db
     .prepare(
       `SELECT rating, comment, created_at FROM ratings WHERE instructor = ? AND college = ? ORDER BY created_at DESC`,
@@ -631,10 +736,18 @@ app.get("/api/instructor/:name", (req, res) => {
 
 app.post("/api/ratings", (req, res) => {
   const { instructor, college, rating, comment } = req.body || {};
+  const normalizedInstructor = nonEmptyString(instructor, 200);
+  const normalizedCollege = nonEmptyString(college, 2);
+  const normalizedComment =
+    comment === undefined || comment === null || comment === ""
+      ? ""
+      : nonEmptyString(comment, 500);
   const ratingNum = Number(rating);
   if (
-    !instructor ||
-    !college ||
+    !normalizedInstructor ||
+    !normalizedCollege ||
+    !isValidCollege(normalizedCollege) ||
+    normalizedComment === null ||
     !Number.isInteger(ratingNum) ||
     ratingNum < 1 ||
     ratingNum > 5
@@ -643,16 +756,23 @@ app.post("/api/ratings", (req, res) => {
       error: "instructor, college, and an integer rating 1-5 are required",
     });
   }
+  const instructorExists = db
+    .prepare(
+      `SELECT 1 FROM courses WHERE instructor = ? AND college = ? LIMIT 1`,
+    )
+    .get(normalizedInstructor, normalizedCollege);
+  if (!instructorExists)
+    return res.status(404).json({ error: "Instructor not found" });
   db.prepare(
     `INSERT INTO ratings (instructor, college, rating, comment) VALUES (?, ?, ?, ?)`,
-  ).run(instructor, college, ratingNum, (comment || "").slice(0, 500));
+  ).run(normalizedInstructor, normalizedCollege, ratingNum, normalizedComment);
 
   const summary = db
     .prepare(
       `SELECT ROUND(AVG(rating), 1) as avg_rating, COUNT(*) as rating_count
      FROM ratings WHERE instructor = ? AND college = ?`,
     )
-    .get(instructor, college);
+    .get(normalizedInstructor, normalizedCollege);
   res.json(summary);
 });
 
@@ -661,9 +781,43 @@ app.use((req, res, next) => {
   return res.sendFile(path.join(clientBuildDir, "index.html"));
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () =>
-  console.log(
-    `GWC/OCC/Coastline Class Finder running at http://localhost:${PORT}`,
-  ),
+app.use(
+  (
+    error: unknown,
+    _req: express.Request,
+    res: express.Response,
+    _next: express.NextFunction,
+  ) => {
+    if (
+      error instanceof SyntaxError &&
+      "status" in error &&
+      error.status === 400
+    ) {
+      return res.status(400).json({ error: "Request body must be valid JSON" });
+    }
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "status" in error &&
+      error.status === 413
+    ) {
+      return res.status(413).json({ error: "Request body is too large" });
+    }
+    console.error(error);
+    return res.status(500).json({ error: "Internal server error" });
+  },
 );
+
+const PORT = process.env.PORT || 3000;
+
+export function startServer(port: string | number = PORT) {
+  return app.listen(port, () =>
+    console.log(
+      `GWC/OCC/Coastline Class Finder running at http://localhost:${port}`,
+    ),
+  );
+}
+
+if (require.main === module) startServer();
+
+export { app };

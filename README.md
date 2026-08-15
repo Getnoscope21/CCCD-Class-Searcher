@@ -166,4 +166,5 @@ a native review system your own users fill in (their data, your site).
   calendar export without more parsing work
 - Only tested against Fall 2026; term-to-term formatting quirks in Banner's
   output are possible and not all have been hit yet
-- No auth/accounts -- it's read-only search, nothing personal is stored
+- Ratings and course-requirement notes are intentionally lightweight and
+  unauthenticated; planner accounts and saved plans use Supabase authentication

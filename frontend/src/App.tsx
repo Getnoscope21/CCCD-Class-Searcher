@@ -14,6 +14,11 @@ import {
   type User,
 } from "@supabase/supabase-js";
 import { api } from "./api";
+import {
+  authErrorMetadata,
+  safeAuthErrorMessage,
+  type AuthOperation,
+} from "./auth-errors";
 import type {
   AppTab,
   College,
@@ -56,12 +61,14 @@ type AuthContextValue = {
   client: SupabaseClient | null;
   user: User | null;
   loading: boolean;
+  availability: "loading" | "ready" | "unavailable" | "error";
   signOut: () => Promise<void>;
 };
 const AuthContext = createContext<AuthContextValue>({
   client: null,
   user: null,
   loading: true,
+  availability: "loading",
   signOut: async () => undefined,
 });
 function useAuth() {
@@ -72,19 +79,30 @@ function AuthProvider({ children }: { children: ReactNode }) {
   const [client, setClient] = useState<SupabaseClient | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [availability, setAvailability] =
+    useState<AuthContextValue["availability"]>("loading");
   useEffect(() => {
     let active = true;
     let unsubscribe: (() => void) | undefined;
     void api
       .config()
       .then(async (config) => {
-        if (!active || !config.supabaseUrl || !config.supabaseAnonKey) return;
+        if (!active) return;
+        if (
+          !config.authConfigured ||
+          !config.supabaseUrl ||
+          !config.supabaseAnonKey
+        ) {
+          setAvailability("unavailable");
+          return;
+        }
         const nextClient = createClient(
           config.supabaseUrl,
           config.supabaseAnonKey,
         );
         setClient(nextClient);
-        const { data } = await nextClient.auth.getSession();
+        const { data, error } = await nextClient.auth.getSession();
+        if (error) throw error;
         if (active) setUser(data.session?.user ?? null);
         const listener = nextClient.auth.onAuthStateChange(
           (_event, session) => {
@@ -92,8 +110,11 @@ function AuthProvider({ children }: { children: ReactNode }) {
           },
         );
         unsubscribe = () => listener.data.subscription.unsubscribe();
+        setAvailability("ready");
       })
-      .catch(() => undefined)
+      .catch(() => {
+        if (active) setAvailability("error");
+      })
       .finally(() => {
         if (active) setLoading(false);
       });
@@ -106,7 +127,9 @@ function AuthProvider({ children }: { children: ReactNode }) {
     if (client) await client.auth.signOut();
   }, [client]);
   return (
-    <AuthContext.Provider value={{ client, user, loading, signOut }}>
+    <AuthContext.Provider
+      value={{ client, user, loading, availability, signOut }}
+    >
       {children}
     </AuthContext.Provider>
   );
@@ -227,44 +250,80 @@ function AuthDialog({
   mode: "signin" | "signup";
   onClose: () => void;
 }) {
-  const { client } = useAuth();
+  const { client, availability } = useAuth();
   const [authMode, setAuthMode] = useState(mode);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const handleAuthError = (authError: unknown, operation: AuthOperation) => {
+    const metadata = authErrorMetadata(authError);
+    // No email, password, provider message, tokens, or project details are logged.
+    console.warn("Authentication request failed", { operation, ...metadata });
+    setError(safeAuthErrorMessage(authError, operation));
+  };
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!client) return;
     setError("");
     setNotice("");
+    if (!client || availability !== "ready") {
+      setError(
+        availability === "unavailable"
+          ? "Sign-in is not configured for this deployment yet. Class search remains available without an account."
+          : "Sign-in is temporarily unavailable. Please try again later.",
+      );
+      return;
+    }
     if (!email || !password) {
       setError("Enter an email and password.");
       return;
     }
     setBusy(true);
-    if (authMode === "signup") {
-      const { data, error: authError } = await client.auth.signUp({
-        email,
-        password,
-      });
-      if (authError) setError(authError.message);
-      else if (data.session) onClose();
-      else setNotice("Check your email to confirm your account, then sign in.");
-    } else {
-      const { error: authError } = await client.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (authError) setError(authError.message);
-      else onClose();
+    try {
+      if (authMode === "signup") {
+        const { data, error: authError } = await client.auth.signUp({
+          email,
+          password,
+        });
+        if (authError) {
+          handleAuthError(authError, "signup");
+        } else if (data.session) onClose();
+        else
+          setNotice(
+            "If this address can be registered, you’ll receive an email with the next step.",
+          );
+      } else {
+        const { error: authError } = await client.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (authError) {
+          handleAuthError(authError, "signin");
+        } else onClose();
+      }
+    } catch (authError) {
+      handleAuthError(authError, authMode);
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   };
+  const unavailableMessage =
+    availability === "unavailable"
+      ? "Sign-in is not configured for this deployment yet. Class search remains available without an account."
+      : availability === "error"
+        ? "Sign-in is temporarily unavailable. Please try again later."
+        : availability === "loading"
+          ? "Checking sign-in availability…"
+          : "";
   return (
     <Modal onClose={onClose}>
       <h3>{authMode === "signup" ? "Sign up" : "Sign in"}</h3>
+      {unavailableMessage && (
+        <p className="auth-error" role="alert">
+          {unavailableMessage}
+        </p>
+      )}
       {error && <p className="auth-error">{error}</p>}
       {notice && <p className="auth-notice">{notice}</p>}
       <form onSubmit={submit}>
@@ -275,6 +334,7 @@ function AuthDialog({
           placeholder="Email"
           className="auth-input"
           autoComplete="email"
+          disabled={availability !== "ready"}
         />
         <input
           value={password}
@@ -282,13 +342,19 @@ function AuthDialog({
           type="password"
           placeholder="Password"
           className="auth-input"
-          autoComplete="current-password"
+          autoComplete={
+            authMode === "signup" ? "new-password" : "current-password"
+          }
+          disabled={availability !== "ready"}
         />
         <div className="modal-actions">
           <button type="button" className="btn-secondary" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn-primary" disabled={busy}>
+          <button
+            className="btn-primary"
+            disabled={busy || availability !== "ready"}
+          >
             {busy
               ? "Please wait…"
               : authMode === "signup"
@@ -773,7 +839,7 @@ function CourseDetailDialog({
   onRate,
   onRefresh,
 }: {
-  course: Pick<CourseCard, "college" | "subject" | "course_number">;
+  course: Pick<CourseCard, "college" | "subject" | "course_number" | "term">;
   onClose: () => void;
   onRate: (
     instructor: string,
@@ -796,7 +862,12 @@ function CourseDetailDialog({
     setError("");
     try {
       setDetail(
-        await api.course(course.college, course.subject, course.course_number),
+        await api.course(
+          course.college,
+          course.subject,
+          course.course_number,
+          course.term,
+        ),
       );
     } catch (err) {
       setError(errorText(err));
