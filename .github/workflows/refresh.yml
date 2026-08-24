@@ -25,6 +25,20 @@ jobs:
         run: npm test
 
       - name: Scrape latest seats/status (skips descriptions -- those rarely change)
+        # Env vars here are all optional -- without them the scraper still
+        # refreshes course/seat data as before, it just skips emailing seat
+        # alerts (see notifyOpenedSeats in src/scraper.ts and "Seat alerts
+        # and the contact form" in the README). SUPABASE_SERVICE_ROLE_KEY is
+        # the Supabase service_role secret, NOT the anon key used elsewhere --
+        # only set it here (a GitHub Actions secret), never on the web server.
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
         run: npm run scrape -- 202670 "Fall 2026" --skip-descriptions
 
       - name: Checkpoint SQLite WAL into data.db
