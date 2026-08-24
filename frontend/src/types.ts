@@ -1,6 +1,6 @@
 export type CollegeCode = "GW" | "OC" | "CL";
 export type Theme = "light" | "dark";
-export type AppTab = "classes" | "professors" | "planner";
+export type AppTab = "classes" | "professors" | "planner" | "contact";
 export type CourseTab = "overview" | "sections" | "requirements";
 
 export interface College {
@@ -82,6 +82,13 @@ export interface PlannerCourse {
   course_number: string;
   title: string | null;
   units: number | null;
+  // Snapshot of the specific section chosen when the course was added --
+  // used for schedule-conflict detection and .ics export. Absent on rows
+  // added before this feature existed.
+  crn?: string | null;
+  term?: string | null;
+  meeting_info?: string | null;
+  location?: string | null;
 }
 export interface PlannerTerm {
   id: string;
@@ -91,4 +98,8 @@ export interface PlannerTerm {
 }
 export interface PlannerPlan {
   terms: PlannerTerm[];
+}
+
+export interface PlannerConflicts {
+  conflicts: [string, string][];
 }

@@ -5,6 +5,7 @@ import type {
   CourseDetail,
   CourseRequirement,
   Instructor,
+  PlannerConflicts,
   Requirement,
 } from "./types";
 
@@ -53,6 +54,44 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
+  lastUpdated: () =>
+    request<{ updated_at: string | null }>("/api/last-updated"),
+  contact: (body: { name: string; email: string; message: string }) =>
+    request<{ ok: true }>("/api/contact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  plannerConflicts: (courses: { key: string; meeting_info: string | null }[]) =>
+    request<PlannerConflicts>("/api/planner/conflicts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ courses }),
+    }),
+  plannerIcs: async (
+    term: string,
+    courses: {
+      crn: string | null | undefined;
+      subject: string;
+      course_number: string;
+      title: string | null;
+      meeting_info: string | null;
+      location: string | null | undefined;
+    }[],
+  ): Promise<Blob> => {
+    const response = await fetch("/api/planner/ics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ term, courses }),
+    });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      throw new Error(body?.error || `Request failed (${response.status})`);
+    }
+    return response.blob();
+  },
 };
 
 interface RatingSummary {

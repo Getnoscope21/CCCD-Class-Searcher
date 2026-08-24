@@ -82,4 +82,74 @@ describe("API client", () => {
       undefined,
     );
   });
+
+  it("reports the last-updated timestamp", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ updated_at: "2026-08-24 05:50:32" }), {
+          status: 200,
+        }),
+      ),
+    );
+
+    await expect(api.lastUpdated()).resolves.toEqual({
+      updated_at: "2026-08-24 05:50:32",
+    });
+  });
+
+  it("surfaces a readable error when the contact form is not configured", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "Not configured" }), {
+          status: 503,
+        }),
+      ),
+    );
+
+    await expect(
+      api.contact({ name: "Test", email: "test@example.com", message: "Hi" }),
+    ).rejects.toThrow("Not configured");
+  });
+
+  it("posts planner courses to the conflicts endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ conflicts: [["a", "b"]] }), {
+        status: 200,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      api.plannerConflicts([
+        { key: "a", meeting_info: "M 09:00am - 10:00am" },
+        { key: "b", meeting_info: "M 09:30am - 10:30am" },
+      ]),
+    ).resolves.toEqual({ conflicts: [["a", "b"]] });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/planner/conflicts",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("returns a Blob from the .ics export endpoint", async () => {
+    const blob = new Blob(["BEGIN:VCALENDAR"], { type: "text/calendar" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(blob, { status: 200 })),
+    );
+
+    const result = await api.plannerIcs("202670", [
+      {
+        crn: "1",
+        subject: "MATH",
+        course_number: "180",
+        title: "Calc",
+        meeting_info: "M 09:00am - 10:00am Room 08/24-12/12",
+        location: "Room",
+      },
+    ]);
+    expect(result).toBeInstanceOf(Blob);
+  });
 });

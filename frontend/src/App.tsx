@@ -41,6 +41,8 @@ const COLLEGE_NAMES: Record<CollegeCode, string> = {
 };
 const THEME_STORAGE_KEY = "cccd-theme";
 const ALL_STATUSES = ["OPEN", "Waitlisted", "CLOSED"];
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const FAVORITES_STORAGE_KEY = "cccd-favorites";
 
 function errorText(error: unknown) {
   return error instanceof Error
@@ -55,6 +57,46 @@ function rmpUrl(name: string) {
 }
 function plural(value: number, singular: string) {
   return `${value} ${singular}${value === 1 ? "" : "s"}`;
+}
+function favoriteKey(
+  college: CollegeCode,
+  subject: string,
+  courseNumber: string,
+) {
+  return `${college}|${subject}|${courseNumber}`;
+}
+function readFavorites(): Set<string> {
+  try {
+    const raw = localStorage.getItem(FAVORITES_STORAGE_KEY);
+    return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+function writeFavorites(favorites: Set<string>) {
+  try {
+    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify([...favorites]));
+  } catch {
+    /* ignore */
+  }
+}
+function formatRelativeTime(isoLike: string): string {
+  const normalized = isoLike.includes("T")
+    ? isoLike
+    : `${isoLike.replace(" ", "T")}Z`;
+  const then = new Date(normalized);
+  const minutes = Math.round((Date.now() - then.getTime()) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${plural(minutes, "minute")} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${plural(hours, "hour")} ago`;
+  return `${plural(Math.round(hours / 24), "day")} ago`;
+}
+function readTabFromUrl(): AppTab {
+  const value = new URLSearchParams(window.location.search).get("tab");
+  return value === "professors" || value === "planner" || value === "contact"
+    ? value
+    : "classes";
 }
 
 type AuthContextValue = {
@@ -452,6 +494,22 @@ function RatingDialog({
   );
 }
 
+function readClassFiltersFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const statuses = params.get("statuses");
+  return {
+    q: params.get("q") ?? "",
+    college: params.get("college") ?? "",
+    requirement: params.get("requirement") ?? "",
+    modality: params.get("modality") ?? "",
+    min: params.has("units_min") ? Number(params.get("units_min")) : 0,
+    max: params.has("units_max") ? Number(params.get("units_max")) : 5,
+    statuses: statuses ? statuses.split(",").filter(Boolean) : ALL_STATUSES,
+    sort: params.get("sort") ?? "relevance",
+    favoritesOnly: params.get("favorites") === "1",
+  };
+}
+
 function ClassesPage({
   colleges,
   requirements,
@@ -461,19 +519,11 @@ function ClassesPage({
   requirements: Requirement[];
   onOpenCourse: (course: CourseCard) => void;
 }) {
-  const [filters, setFilters] = useState({
-    q: "",
-    college: "",
-    requirement: "",
-    modality: "",
-    min: 0,
-    max: 5,
-    statuses: ALL_STATUSES,
-    sort: "relevance",
-  });
+  const [filters, setFilters] = useState(readClassFiltersFromUrl);
   const [cards, setCards] = useState<CourseCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [favorites, setFavorites] = useState<Set<string>>(readFavorites);
   const timer = useRef<number | undefined>(undefined);
   const search = useCallback(async () => {
     setLoading(true);
@@ -488,6 +538,16 @@ function ClassesPage({
     if (filters.max < 5) params.set("units_max", String(filters.max));
     if (filters.statuses.length < ALL_STATUSES.length)
       params.set("statuses", filters.statuses.join(","));
+    if (filters.favoritesOnly) params.set("favorites", "1");
+    // Mirror filter state into the URL (replaceState, not pushState -- we
+    // don't want every keystroke/checkbox toggle to add a back-button entry)
+    // so a search/filter combination can be bookmarked or shared as a link.
+    const qs = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      qs ? `?${qs}` : window.location.pathname,
+    );
     try {
       setCards(await api.courseCards(params));
     } catch (err) {
@@ -505,6 +565,25 @@ function ClassesPage({
     key: K,
     value: (typeof filters)[K],
   ) => setFilters((current) => ({ ...current, [key]: value }));
+  const toggleFavorite = (course: CourseCard) => {
+    setFavorites((current) => {
+      const key = favoriteKey(
+        course.college,
+        course.subject,
+        course.course_number,
+      );
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      writeFavorites(next);
+      return next;
+    });
+  };
+  const visibleCards = filters.favoritesOnly
+    ? cards.filter((c) =>
+        favorites.has(favoriteKey(c.college, c.subject, c.course_number)),
+      )
+    : cards;
   const statusChange = (status: string, checked: boolean) =>
     update(
       "statuses",
@@ -617,6 +696,16 @@ function ClassesPage({
           ))}
         </div>
         <div className="sidebar-block">
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={filters.favoritesOnly}
+              onChange={(e) => update("favoritesOnly", e.target.checked)}
+            />
+            ★ Favorites only
+          </label>
+        </div>
+        <div className="sidebar-block">
           <h4>Sort by</h4>
           <select
             value={filters.sort}
@@ -643,7 +732,7 @@ function ClassesPage({
           <span>
             {loading
               ? "Searching…"
-              : `${plural(cards.length, "course")}${cards.length === 300 ? " (showing first 300 — narrow your search)" : ""}`}
+              : `${plural(visibleCards.length, "course")}${cards.length === 300 ? " (showing first 300 — narrow your search)" : ""}`}
           </span>
           {error && (
             <span className="inline-error">
@@ -654,15 +743,23 @@ function ClassesPage({
             </span>
           )}
         </div>
-        {!loading && !error && cards.length === 0 && (
+        {!loading && !error && visibleCards.length === 0 && (
           <div className="planner-empty">No courses match these filters.</div>
         )}
         <div className="course-cards">
-          {cards.map((course) => (
+          {visibleCards.map((course) => (
             <CourseCardView
               key={`${course.college}-${course.subject}-${course.course_number}`}
               course={course}
+              favorited={favorites.has(
+                favoriteKey(
+                  course.college,
+                  course.subject,
+                  course.course_number,
+                ),
+              )}
               onClick={() => onOpenCourse(course)}
+              onToggleFavorite={() => toggleFavorite(course)}
             />
           ))}
         </div>
@@ -673,24 +770,52 @@ function ClassesPage({
 
 function CourseCardView({
   course,
+  favorited,
   onClick,
+  onToggleFavorite,
 }: {
   course: CourseCard;
+  favorited: boolean;
   onClick: () => void;
+  onToggleFavorite: () => void;
 }) {
   const units =
     course.units_min === course.units_max
       ? course.units_min
       : `${course.units_min}–${course.units_max}`;
   return (
-    <button className="course-card" onClick={onClick}>
+    <div
+      className="course-card"
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+    >
       <div className="course-card-top">
-        <span className="course-card-code">
-          {course.subject} {course.course_number}
-        </span>
-        <span className="badge">
-          {units} unit{course.units_max === 1 ? "" : "s"}
-        </span>
+        <div className="course-card-top-left">
+          <span className="course-card-code">
+            {course.subject} {course.course_number}
+          </span>
+          <span className="badge">
+            {units} unit{course.units_max === 1 ? "" : "s"}
+          </span>
+        </div>
+        <button
+          type="button"
+          className={`course-card-favorite${favorited ? " favorited" : ""}`}
+          aria-label={favorited ? "Remove from favorites" : "Add to favorites"}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite();
+          }}
+        >
+          {favorited ? "★" : "☆"}
+        </button>
       </div>
       <div className="course-card-title">{course.title}</div>
       <div className="course-card-college">{collegeName(course.college)}</div>
@@ -717,7 +842,7 @@ function CourseCardView({
           </span>
         )}
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -833,6 +958,100 @@ function ProfessorsPage({
   );
 }
 
+function SeatAlertDialog({
+  college,
+  subject,
+  courseNumber,
+  crn,
+  term,
+  onClose,
+}: {
+  college: CollegeCode;
+  subject: string;
+  courseNumber: string;
+  crn: string;
+  term: string;
+  onClose: () => void;
+}) {
+  const { client, availability } = useAuth();
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    if (!EMAIL_RE.test(email)) {
+      setError("Enter a valid email.");
+      return;
+    }
+    if (!client || availability !== "ready") {
+      setError(
+        availability === "unavailable"
+          ? "Seat alerts are not configured for this deployment yet."
+          : "Seat alerts are temporarily unavailable. Please try again later.",
+      );
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const { error: insertError } = await client.from("seat_alerts").insert({
+        email,
+        college,
+        subject,
+        course_number: courseNumber,
+        crn,
+        term,
+      });
+      if (insertError) throw insertError;
+      setSuccess(true);
+      window.setTimeout(onClose, 1500);
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Modal onClose={onClose}>
+      <h3>Notify me when a seat opens</h3>
+      <p className="modal-note">
+        {subject} {courseNumber} · CRN {crn} · {collegeName(college)}
+      </p>
+      {error && <p className="auth-error">{error}</p>}
+      {success && (
+        <p className="auth-notice">
+          You're set — we'll email you when a seat opens.
+        </p>
+      )}
+      <input
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        type="email"
+        placeholder="Your email"
+        className="auth-input"
+        autoComplete="email"
+        disabled={busy || success}
+      />
+      <div className="modal-actions">
+        <button className="btn-secondary" onClick={onClose}>
+          Cancel
+        </button>
+        <button
+          className="btn-primary"
+          disabled={busy || success}
+          onClick={() => void submit()}
+        >
+          {busy ? "Submitting…" : "Notify me"}
+        </button>
+      </div>
+      <p className="modal-note">
+        One-time email, sent as soon as this section flips to Open, then the
+        alert is cleared.
+      </p>
+    </Modal>
+  );
+}
+
 function CourseDetailDialog({
   course,
   onClose,
@@ -857,9 +1076,14 @@ function CourseDetailDialog({
   const [menuOpen, setMenuOpen] = useState(false);
   const [plan, setPlan] = useState<PlannerPlan>({ terms: [] });
   const [plannerError, setPlannerError] = useState("");
+  const [sectionIndex, setSectionIndex] = useState(0);
+  const [alertSection, setAlertSection] = useState<
+    CourseDetail["sections"][number] | null
+  >(null);
   const { loadPlan, addCourse } = usePlanner();
   const load = useCallback(async () => {
     setError("");
+    setSectionIndex(0);
     try {
       setDetail(
         await api.course(
@@ -908,231 +1132,273 @@ function CourseDetailDialog({
       setSavingNote(false);
     }
   };
+  const selectedSection = detail?.sections[sectionIndex] ?? detail?.sections[0];
   const plannedCourse: PlannerCourse | null = detail
     ? {
         college: detail.college,
         subject: detail.subject,
         course_number: detail.course_number,
         title: detail.title,
-        units: detail.sections[0] ? Number(detail.sections[0].credits) : null,
+        units: selectedSection ? Number(selectedSection.credits) : null,
+        crn: selectedSection?.crn ?? null,
+        term: detail.term,
+        meeting_info: selectedSection?.meeting_info ?? null,
+        location: selectedSection?.location ?? null,
       }
     : null;
   return (
-    <Modal className="course-modal" onClose={onClose}>
-      <button className="modal-close" aria-label="Close" onClick={onClose}>
-        ×
-      </button>
-      <div className="course-modal-header">
-        <h2>
-          {detail
-            ? `${detail.subject} ${detail.course_number} — ${detail.title || ""}`
-            : `${course.subject} ${course.course_number}`}
-        </h2>
-        <p className="course-modal-subtitle">
-          {detail
-            ? `${collegeName(detail.college)} · ${detail.term_desc || ""}`
-            : "Loading…"}
-        </p>
-        <div className="add-to-plan">
-          {user && (
-            <button
-              className="btn-secondary"
-              onClick={() => void openPlanner()}
-            >
-              + Add to Plan
-            </button>
-          )}
-          {menuOpen && (
-            <div className="add-to-plan-menu">
-              {plannerError ? (
-                <div className="add-to-plan-empty">{plannerError}</div>
-              ) : plan.terms.length ? (
-                plan.terms.map((term) => {
-                  const added = term.courses.some(
-                    (item) =>
-                      item.college === course.college &&
-                      item.subject === course.subject &&
-                      item.course_number === course.course_number,
-                  );
-                  return (
-                    <button
-                      className="add-to-plan-option"
-                      key={term.id}
-                      disabled={added || !plannedCourse}
-                      onClick={() => {
-                        if (plannedCourse)
-                          void addCourse(term.id, plannedCourse).then(() =>
-                            setMenuOpen(false),
-                          );
-                      }}
-                    >
-                      <span>{term.label}</span>
-                      {added && <span className="added-check">Added ✓</span>}
-                    </button>
-                  );
-                })
-              ) : (
-                <div className="add-to-plan-empty">
-                  No semesters yet — go to the Planner tab to add one.
-                </div>
-              )}
-            </div>
+    <>
+      <Modal className="course-modal" onClose={onClose}>
+        <button className="modal-close" aria-label="Close" onClick={onClose}>
+          ×
+        </button>
+        <div className="course-modal-header">
+          <h2>
+            {detail
+              ? `${detail.subject} ${detail.course_number} — ${detail.title || ""}`
+              : `${course.subject} ${course.course_number}`}
+          </h2>
+          <p className="course-modal-subtitle">
+            {detail
+              ? `${collegeName(detail.college)} · ${detail.term_desc || ""}`
+              : "Loading…"}
+          </p>
+          <div className="add-to-plan">
+            {detail && detail.sections.length > 1 && (
+              <select
+                className="add-to-plan-section"
+                value={sectionIndex}
+                onChange={(e) => setSectionIndex(Number(e.target.value))}
+              >
+                {detail.sections.map((section, index) => (
+                  <option key={section.crn} value={index}>
+                    CRN {section.crn}
+                    {section.instructor ? ` · ${section.instructor}` : ""}
+                    {section.meeting_info
+                      ? ` · ${section.meeting_info.slice(0, 40)}`
+                      : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+            {user && (
+              <button
+                className="btn-secondary"
+                onClick={() => void openPlanner()}
+              >
+                + Add to Plan
+              </button>
+            )}
+            {menuOpen && (
+              <div className="add-to-plan-menu">
+                {plannerError ? (
+                  <div className="add-to-plan-empty">{plannerError}</div>
+                ) : plan.terms.length ? (
+                  plan.terms.map((term) => {
+                    const added = term.courses.some(
+                      (item) =>
+                        item.college === course.college &&
+                        item.subject === course.subject &&
+                        item.course_number === course.course_number,
+                    );
+                    return (
+                      <button
+                        className="add-to-plan-option"
+                        key={term.id}
+                        disabled={added || !plannedCourse}
+                        onClick={() => {
+                          if (plannedCourse)
+                            void addCourse(term.id, plannedCourse).then(() =>
+                              setMenuOpen(false),
+                            );
+                        }}
+                      >
+                        <span>{term.label}</span>
+                        {added && <span className="added-check">Added ✓</span>}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="add-to-plan-empty">
+                    No semesters yet — go to the Planner tab to add one.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="course-modal-tabs">
+          {(["overview", "sections", "requirements"] as CourseTab[]).map(
+            (name) => (
+              <button
+                key={name}
+                className={`course-tab-btn ${tab === name ? "active" : ""}`}
+                onClick={() => setTab(name)}
+              >
+                {name[0].toUpperCase() + name.slice(1)}
+              </button>
+            ),
           )}
         </div>
-      </div>
-      <div className="course-modal-tabs">
-        {(["overview", "sections", "requirements"] as CourseTab[]).map(
-          (name) => (
-            <button
-              key={name}
-              className={`course-tab-btn ${tab === name ? "active" : ""}`}
-              onClick={() => setTab(name)}
-            >
-              {name[0].toUpperCase() + name.slice(1)}
-            </button>
-          ),
-        )}
-      </div>
-      <div className="course-modal-body">
-        {error && <p className="auth-error">{error}</p>}
-        {!detail && !error && (
-          <p className="no-rating">Loading course details…</p>
-        )}
-        {detail && tab === "overview" && (
-          <div>
-            {detail.description ? (
-              <p>{detail.description}</p>
-            ) : (
-              <p className="no-rating">No description available.</p>
-            )}
-            {detail.corequisites && (
-              <p>
-                <strong>Corequisites:</strong> {detail.corequisites}
-              </p>
-            )}
-            {detail.transfer_credit && (
-              <p>
-                <strong>Transfer credit:</strong> {detail.transfer_credit}
-              </p>
-            )}
-            {detail.assist_url && (
-              <p>
-                <a
-                  className="rmp-link"
-                  href={detail.assist_url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  See what {collegeName(detail.college)} courses transfer as on
-                  ASSIST.org →
-                </a>
-              </p>
-            )}
-          </div>
-        )}
-        {detail && tab === "sections" && (
-          <div className="section-cards">
-            {detail.sections.map((section) => (
-              <div className="section-card" key={section.crn}>
-                <div className="section-card-top">
-                  <span className="section-card-crn">CRN {section.crn}</span>
-                  <ModalityBadge modality={section.modality} />
-                </div>
-                <div className="section-card-instructor">
-                  {section.instructor || "—"}
-                </div>
-                {section.instructor && (
-                  <>
-                    <div className="section-card-rating">
-                      <RatingSummary {...section} />{" "}
-                      <button
-                        className="rate-btn"
-                        onClick={() =>
-                          onRate(
-                            section.instructor,
-                            section.college,
-                            () => void load(),
-                          )
-                        }
-                      >
-                        Rate
-                      </button>
-                    </div>
-                    <div className="section-card-links">
-                      <a
-                        className="rmp-link"
-                        href={rmpUrl(section.instructor)}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Search on RateMyProfessor →
-                      </a>
-                    </div>
-                  </>
-                )}
-                <div className="section-card-row">
-                  <span className="label">Meeting:</span>
-                  {section.meeting_info || "—"}
-                </div>
-                <div className="section-card-row">
-                  <span className="label">Location:</span>
-                  {section.location || "—"}
-                </div>
-                <div className="section-card-bottom">
-                  <span className="section-card-row">
-                    <span className="label">Seats:</span>
-                    {section.cap != null
-                      ? `${section.act}/${section.cap}`
-                      : "—"}
-                  </span>
-                  <StatusBadge status={section.status} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        {detail && tab === "requirements" && (
-          <div>
-            <div className="requirements-list">
-              {detail.requirements.length ? (
-                detail.requirements.map((requirement) => (
-                  <div className="requirement-item" key={requirement.id}>
-                    <p>{requirement.requirement_text}</p>
-                    <span className="requirement-date">
-                      {new Date(
-                        `${requirement.created_at}Z`,
-                      ).toLocaleDateString()}
-                    </span>
-                  </div>
-                ))
+        <div className="course-modal-body">
+          {error && <p className="auth-error">{error}</p>}
+          {!detail && !error && (
+            <p className="no-rating">Loading course details…</p>
+          )}
+          {detail && tab === "overview" && (
+            <div>
+              {detail.description ? (
+                <p>{detail.description}</p>
               ) : (
-                <p className="no-rating">
-                  No requirements submitted yet — be the first.
+                <p className="no-rating">No description available.</p>
+              )}
+              {detail.corequisites && (
+                <p>
+                  <strong>Corequisites:</strong> {detail.corequisites}
+                </p>
+              )}
+              {detail.transfer_credit && (
+                <p>
+                  <strong>Transfer credit:</strong> {detail.transfer_credit}
+                </p>
+              )}
+              {detail.assist_url && (
+                <p>
+                  <a
+                    className="rmp-link"
+                    href={detail.assist_url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    See what {collegeName(detail.college)} courses transfer as
+                    on ASSIST.org →
+                  </a>
                 </p>
               )}
             </div>
-            <div className="requirement-form">
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Add a requirement or note for students (e.g. prior coursework, materials needed)..."
-                maxLength={500}
-              />
-              <button
-                className="btn-primary"
-                disabled={savingNote || !note.trim()}
-                onClick={() => void saveNote()}
-              >
-                {savingNote ? "Saving…" : "Add requirement"}
-              </button>
+          )}
+          {detail && tab === "sections" && (
+            <div className="section-cards">
+              {detail.sections.map((section) => (
+                <div className="section-card" key={section.crn}>
+                  <div className="section-card-top">
+                    <span className="section-card-crn">CRN {section.crn}</span>
+                    <ModalityBadge modality={section.modality} />
+                  </div>
+                  <div className="section-card-instructor">
+                    {section.instructor || "—"}
+                  </div>
+                  {section.instructor && (
+                    <>
+                      <div className="section-card-rating">
+                        <RatingSummary {...section} />{" "}
+                        <button
+                          className="rate-btn"
+                          onClick={() =>
+                            onRate(
+                              section.instructor,
+                              section.college,
+                              () => void load(),
+                            )
+                          }
+                        >
+                          Rate
+                        </button>
+                      </div>
+                      <div className="section-card-links">
+                        <a
+                          className="rmp-link"
+                          href={rmpUrl(section.instructor)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Search on RateMyProfessor →
+                        </a>
+                      </div>
+                    </>
+                  )}
+                  <div className="section-card-row">
+                    <span className="label">Meeting:</span>
+                    {section.meeting_info || "—"}
+                  </div>
+                  <div className="section-card-row">
+                    <span className="label">Location:</span>
+                    {section.location || "—"}
+                  </div>
+                  <div className="section-card-bottom">
+                    <span className="section-card-row">
+                      <span className="label">Seats:</span>
+                      {section.cap != null
+                        ? `${section.act}/${section.cap}`
+                        : "—"}
+                    </span>
+                    <StatusBadge status={section.status} />
+                  </div>
+                  {section.status !== "OPEN" && (
+                    <button
+                      className="alert-btn"
+                      onClick={() => setAlertSection(section)}
+                    >
+                      🔔 Notify me when open
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
-            <p className="modal-note">
-              Requirements here are submitted directly by users of this site.
-            </p>
-          </div>
-        )}
-      </div>
-    </Modal>
+          )}
+          {detail && tab === "requirements" && (
+            <div>
+              <div className="requirements-list">
+                {detail.requirements.length ? (
+                  detail.requirements.map((requirement) => (
+                    <div className="requirement-item" key={requirement.id}>
+                      <p>{requirement.requirement_text}</p>
+                      <span className="requirement-date">
+                        {new Date(
+                          `${requirement.created_at}Z`,
+                        ).toLocaleDateString()}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="no-rating">
+                    No requirements submitted yet — be the first.
+                  </p>
+                )}
+              </div>
+              <div className="requirement-form">
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Add a requirement or note for students (e.g. prior coursework, materials needed)..."
+                  maxLength={500}
+                />
+                <button
+                  className="btn-primary"
+                  disabled={savingNote || !note.trim()}
+                  onClick={() => void saveNote()}
+                >
+                  {savingNote ? "Saving…" : "Add requirement"}
+                </button>
+              </div>
+              <p className="modal-note">
+                Requirements here are submitted directly by users of this site.
+              </p>
+            </div>
+          )}
+        </div>
+      </Modal>
+      {alertSection && detail && (
+        <SeatAlertDialog
+          college={detail.college}
+          subject={detail.subject}
+          courseNumber={detail.course_number}
+          crn={alertSection.crn}
+          term={detail.term}
+          onClose={() => setAlertSection(null)}
+        />
+      )}
+    </>
   );
 }
 
@@ -1188,6 +1454,10 @@ function PlannerProvider({ children }: { children: ReactNode }) {
               course_number: course.course_number as string,
               title: course.title as string | null,
               units: course.units == null ? null : Number(course.units),
+              crn: (course.crn as string | null) ?? null,
+              term: (course.term as string | null) ?? null,
+              meeting_info: (course.meeting_info as string | null) ?? null,
+              location: (course.location as string | null) ?? null,
             })),
         })),
       };
@@ -1314,6 +1584,35 @@ function PlannerPage({ onSignIn }: { onSignIn: () => void }) {
       term.courses.reduce((units, course) => units + (course.units || 0), 0),
     0,
   );
+  const [conflictsByTerm, setConflictsByTerm] = useState<
+    Record<string, Set<string>>
+  >({});
+  useEffect(() => {
+    let active = true;
+    void Promise.all(
+      plan.terms.map(async (term) => {
+        const withMeetings = term.courses
+          .filter((c) => c.meeting_info)
+          .map((c) => ({
+            key: `${c.college}|${c.subject}|${c.course_number}`,
+            meeting_info: c.meeting_info ?? null,
+          }));
+        if (withMeetings.length < 2)
+          return [term.id, new Set<string>()] as const;
+        try {
+          const response = await api.plannerConflicts(withMeetings);
+          return [term.id, new Set(response.conflicts.flat())] as const;
+        } catch {
+          return [term.id, new Set<string>()] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (active) setConflictsByTerm(Object.fromEntries(entries));
+    });
+    return () => {
+      active = false;
+    };
+  }, [plan]);
   return (
     <section>
       <div className="planner-header">
@@ -1358,6 +1657,7 @@ function PlannerPage({ onSignIn }: { onSignIn: () => void }) {
           <PlannerTermView
             key={term.id}
             term={term}
+            conflictedKeys={conflictsByTerm[term.id] ?? new Set()}
             onRename={renameSemester}
             onRemove={removeSemester}
             onRemoveCourse={removeCourse}
@@ -1370,20 +1670,52 @@ function PlannerPage({ onSignIn }: { onSignIn: () => void }) {
 
 function PlannerTermView({
   term,
+  conflictedKeys,
   onRename,
   onRemove,
   onRemoveCourse,
 }: {
   term: PlannerTerm;
+  conflictedKeys: Set<string>;
   onRename: (id: string, label: string) => Promise<void>;
   onRemove: (id: string) => Promise<void>;
   onRemoveCourse: (id: string, course: PlannerCourse) => Promise<void>;
 }) {
   const [label, setLabel] = useState(term.label);
+  const [exporting, setExporting] = useState(false);
   const units = term.courses.reduce(
     (sum, course) => sum + (course.units || 0),
     0,
   );
+  const withTime = term.courses.filter((c) => c.meeting_info);
+  const exportIcs = async () => {
+    const termCode = withTime.find((c) => c.term)?.term;
+    if (!withTime.length || !termCode) return;
+    setExporting(true);
+    try {
+      const blob = await api.plannerIcs(
+        termCode,
+        withTime.map((c) => ({
+          crn: c.crn,
+          subject: c.subject,
+          course_number: c.course_number,
+          title: c.title,
+          meeting_info: c.meeting_info ?? null,
+          location: c.location,
+        })),
+      );
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${term.label.replace(/[^\w -]/g, "")}.ics`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  };
   return (
     <div className="planner-term">
       <div className="planner-term-top">
@@ -1397,6 +1729,16 @@ function PlannerTermView({
           }}
         />
         <button
+          className="planner-term-export"
+          disabled={!withTime.length || exporting}
+          title={
+            withTime.length ? "Export as .ics" : "No timed sections to export"
+          }
+          onClick={() => void exportIcs()}
+        >
+          📅 Export
+        </button>
+        <button
           className="planner-term-remove"
           aria-label="Remove semester"
           onClick={() => void onRemove(term.id)}
@@ -1407,31 +1749,45 @@ function PlannerTermView({
       <div className="planner-term-units">{plural(units, "unit")}</div>
       <div className="planner-course-list">
         {term.courses.length ? (
-          term.courses.map((course) => (
-            <div
-              className="planner-course-item"
-              key={`${course.college}-${course.subject}-${course.course_number}`}
-            >
-              <div className="planner-course-info">
-                <div className="planner-course-code">
-                  {course.subject} {course.course_number}{" "}
-                  <span className="planner-course-units">
-                    ({course.units ?? "—"} units)
-                  </span>
-                </div>
-                <div className="planner-course-title">
-                  {course.title || ""} · {collegeName(course.college)}
-                </div>
-              </div>
-              <button
-                className="planner-course-remove"
-                aria-label="Remove class"
-                onClick={() => void onRemoveCourse(term.id, course)}
+          term.courses.map((course) => {
+            const key = `${course.college}|${course.subject}|${course.course_number}`;
+            return (
+              <div
+                className="planner-course-item"
+                key={`${course.college}-${course.subject}-${course.course_number}`}
               >
-                ×
-              </button>
-            </div>
-          ))
+                <div className="planner-course-info">
+                  <div className="planner-course-code">
+                    {course.subject} {course.course_number}{" "}
+                    <span className="planner-course-units">
+                      ({course.units ?? "—"} units)
+                    </span>
+                  </div>
+                  <div className="planner-course-title">
+                    {course.title || ""} · {collegeName(course.college)}
+                  </div>
+                  {course.meeting_info && (
+                    <div className="planner-course-meeting">
+                      {course.crn ? `CRN ${course.crn} · ` : ""}
+                      {course.meeting_info}
+                    </div>
+                  )}
+                  {conflictedKeys.has(key) && (
+                    <div className="planner-warning">
+                      ⚠ Time conflicts with another class this semester
+                    </div>
+                  )}
+                </div>
+                <button
+                  className="planner-course-remove"
+                  aria-label="Remove class"
+                  onClick={() => void onRemoveCourse(term.id, course)}
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })
         ) : (
           <div className="planner-term-empty">No classes added yet.</div>
         )}
@@ -1440,14 +1796,87 @@ function PlannerTermView({
   );
 }
 
+function ContactPage() {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setError("");
+    setSuccess(false);
+    if (!name.trim() || !EMAIL_RE.test(email) || !message.trim()) {
+      setError("Enter your name, a valid email, and a message.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.contact({ name: name.trim(), email, message: message.trim() });
+      setSuccess(true);
+      setName("");
+      setEmail("");
+      setMessage("");
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="contact-form">
+      <h2 className="planner-title">Contact</h2>
+      <p className="planner-subtitle">
+        Questions, bug reports, or feature requests — this goes straight to the
+        person running this site.
+      </p>
+      {error && <p className="auth-error">{error}</p>}
+      {success && (
+        <p className="auth-notice">
+          Sent — thanks! We'll get back to you at that email.
+        </p>
+      )}
+      <form onSubmit={(event) => void submit(event)}>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          type="text"
+          placeholder="Your name"
+          className="auth-input"
+        />
+        <input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          type="email"
+          placeholder="Your email"
+          className="auth-input"
+          autoComplete="email"
+        />
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          placeholder="Your question or message..."
+          maxLength={5000}
+          rows={6}
+        />
+        <button className="btn-primary" disabled={busy}>
+          {busy ? "Sending…" : "Send"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 function AppContent() {
   const { user, signOut } = useAuth();
-  const [tab, setTab] = useState<AppTab>("classes");
+  const [tab, setTab] = useState<AppTab>(readTabFromUrl);
   const [colleges, setColleges] = useState<College[]>([]);
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [startupError, setStartupError] = useState("");
   const [course, setCourse] = useState<CourseCard | null>(null);
   const [authMode, setAuthMode] = useState<"signin" | "signup" | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
   const [rating, setRating] = useState<{
     instructor: string;
     college: CollegeCode;
@@ -1460,7 +1889,22 @@ function AppContent() {
         setRequirements(nextRequirements);
       })
       .catch((err) => setStartupError(errorText(err)));
+    api
+      .lastUpdated()
+      .then((res) => setLastUpdated(res.updated_at))
+      .catch(() => undefined);
   }, []);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (tab === "classes") params.delete("tab");
+    else params.set("tab", tab);
+    const qs = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      qs ? `?${qs}` : window.location.pathname,
+    );
+  }, [tab]);
   return (
     <>
       <header>
@@ -1487,19 +1931,26 @@ function AppContent() {
         </div>
         <h1>Coast Colleges Class Finder</h1>
         <p className="subtitle">Golden West · Orange Coast · Coastline</p>
+        {lastUpdated && (
+          <p className="subtitle" id="last-updated">
+            Class data updated {formatRelativeTime(lastUpdated)}
+          </p>
+        )}
       </header>
       <main>
         {startupError && <p className="auth-error">{startupError}</p>}
         <div className="tabs">
-          {(["classes", "professors", "planner"] as AppTab[]).map((name) => (
-            <button
-              className={`tab-btn ${tab === name ? "active" : ""}`}
-              key={name}
-              onClick={() => setTab(name)}
-            >
-              {name[0].toUpperCase() + name.slice(1)}
-            </button>
-          ))}
+          {(["classes", "professors", "planner", "contact"] as AppTab[]).map(
+            (name) => (
+              <button
+                className={`tab-btn ${tab === name ? "active" : ""}`}
+                key={name}
+                onClick={() => setTab(name)}
+              >
+                {name[0].toUpperCase() + name.slice(1)}
+              </button>
+            ),
+          )}
         </div>
         {tab === "classes" && (
           <ClassesPage
@@ -1519,6 +1970,7 @@ function AppContent() {
         {tab === "planner" && (
           <PlannerPage onSignIn={() => setAuthMode("signin")} />
         )}
+        {tab === "contact" && <ContactPage />}
       </main>
       {course && (
         <CourseDetailDialog

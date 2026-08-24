@@ -2,6 +2,7 @@ import * as cheerio from "cheerio";
 import type { AnyNode } from "domhandler";
 import db from "./db";
 import { ALL_GE_CODES } from "./ge-requirements";
+import * as mailer from "./mailer";
 import { errorMessage, type CollegeCode, type CourseSection } from "./types";
 
 export const COLLEGES: Readonly<Record<CollegeCode, string>> = {
@@ -395,6 +396,25 @@ export async function scrapeCollege(
   const html = await fetchCatalogHtml(college, term, termDesc);
   const courses = parseCatalog(html, college, term, termDesc);
 
+  // Snapshot prior status per CRN before overwriting, so we can tell which
+  // sections just transitioned from closed/waitlisted to open (see
+  // notifyOpenedSeats below).
+  const priorStatus = new Map(
+    (
+      db
+        .prepare(
+          `SELECT crn, status FROM courses WHERE college = ? AND term = ?`,
+        )
+        .all(college, term) as { crn: string; status: string }[]
+    ).map((r) => [r.crn, r.status]),
+  );
+  const newlyOpened = courses.filter((c) => {
+    const was = priorStatus.get(c.crn);
+    return (
+      was && (was === "CLOSED" || was === "Waitlisted") && c.status === "OPEN"
+    );
+  });
+
   const upsert = db.prepare(`
     INSERT INTO courses (college, term, term_desc, subject, course_number, title, crn,
       status, credits, meeting_info, location, cap, act, wl_cap, wl_act, instructor,
@@ -418,7 +438,87 @@ export async function scrapeCollege(
   console.log(
     `${COLLEGES[college]} (${termDesc}): ${courses.length} sections stored`,
   );
+  if (newlyOpened.length) await notifyOpenedSeats(term, newlyOpened);
   return courses.length;
+}
+
+interface SeatAlertRow {
+  id: string;
+  email: string;
+  subject: string;
+  course_number: string;
+  crn: string;
+}
+
+// Emails anyone subscribed (via the site's "notify me" button on a
+// closed/waitlisted section) once their section flips to OPEN, then deletes
+// the alert so it only fires once. Uses the Supabase *service role* key
+// (never the anon key -- this needs to bypass RLS to read/delete other
+// people's rows), which must only ever be set in this job's environment (a
+// GitHub Actions secret), never on the web server. No-ops quietly if either
+// Supabase or SMTP isn't configured, matching every other optional
+// integration in this project.
+async function notifyOpenedSeats(
+  term: string,
+  openedSections: CourseSection[],
+): Promise<void> {
+  const url = process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceKey || !mailer.isConfigured()) return;
+
+  const crns = openedSections.map((c) => c.crn);
+  const byCrn = new Map(openedSections.map((c) => [c.crn, c]));
+
+  try {
+    const res = await fetch(
+      `${url}/rest/v1/seat_alerts?term=eq.${encodeURIComponent(term)}&crn=in.(${crns.map(encodeURIComponent).join(",")})`,
+      {
+        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+      },
+    );
+    if (!res.ok) {
+      console.error(
+        `seat_alerts lookup failed: ${res.status} ${await res.text()}`,
+      );
+      return;
+    }
+    const alerts = (await res.json()) as SeatAlertRow[];
+    if (!alerts.length) return;
+
+    for (const alert of alerts) {
+      const course = byCrn.get(alert.crn);
+      try {
+        await mailer.sendMail({
+          to: alert.email,
+          subject: `Seat open: ${alert.subject} ${alert.course_number} (CRN ${alert.crn})`,
+          text: `${alert.subject} ${alert.course_number}${course?.title ? " - " + course.title : ""} (CRN ${alert.crn}) just opened up.\n\nCheck it out: https://ssb-prod.ec.cccd.edu/PROD/pw_pub_sched.p_listthislist`,
+        });
+      } catch (error) {
+        console.error(
+          `seat alert email to ${alert.email} failed: ${errorMessage(error)}`,
+        );
+      }
+    }
+
+    const ids = alerts.map((a) => a.id);
+    const delRes = await fetch(
+      `${url}/rest/v1/seat_alerts?id=in.(${ids.join(",")})`,
+      {
+        method: "DELETE",
+        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+      },
+    );
+    if (!delRes.ok) {
+      console.error(
+        `seat_alerts cleanup failed: ${delRes.status} ${await delRes.text()}`,
+      );
+    }
+    console.log(
+      `  Notified and cleared ${alerts.length} seat alert(s) for ${term}.`,
+    );
+  } catch (error) {
+    console.error(`notifyOpenedSeats errored: ${errorMessage(error)}`);
+  }
 }
 
 async function main() {

@@ -5,6 +5,8 @@ import path from "node:path";
 import { assistTransferabilityUrl } from "./assist-links";
 import db from "./db";
 import { REQUIREMENT_CATEGORIES } from "./ge-requirements";
+import { buildIcsForCourses, meetingsConflict } from "./meeting-parser";
+import * as mailer from "./mailer";
 import { COLLEGES } from "./scraper";
 import type {
   CollegeCode,
@@ -774,6 +776,122 @@ app.post("/api/ratings", (req, res) => {
     )
     .get(normalizedInstructor, normalizedCollege);
   res.json(summary);
+});
+
+app.get("/api/last-updated", (req, res) => {
+  const row = db
+    .prepare(`SELECT MAX(updated_at) as updated_at FROM courses`)
+    .get() as { updated_at: string | null } | undefined;
+  res.json({ updated_at: row ? row.updated_at : null });
+});
+
+interface PlannerCourseInput {
+  key?: unknown;
+  meeting_info?: unknown;
+}
+
+function isPlannerCourseInput(value: unknown): value is PlannerCourseInput {
+  return typeof value === "object" && value !== null;
+}
+
+// Takes the courses currently planned in one semester (each with a `key` the
+// frontend picked, plus its snapshot meeting_info) and returns which pairs of
+// keys have an overlapping timed meeting pattern. Stateless -- no DB lookup,
+// just parses the meeting_info strings the frontend already has.
+app.post("/api/planner/conflicts", (req, res) => {
+  const body = req.body as { courses?: unknown } | undefined;
+  const rawCourses = Array.isArray(body?.courses) ? body.courses : [];
+  const courses = rawCourses.filter(isPlannerCourseInput).map((c) => ({
+    key: typeof c.key === "string" ? c.key : "",
+    meeting_info: typeof c.meeting_info === "string" ? c.meeting_info : null,
+  }));
+  const conflicts: [string, string][] = [];
+  for (let i = 0; i < courses.length; i++) {
+    for (let j = i + 1; j < courses.length; j++) {
+      const a = courses[i];
+      const b = courses[j];
+      if (
+        a &&
+        b &&
+        a.meeting_info &&
+        b.meeting_info &&
+        meetingsConflict(a.meeting_info, b.meeting_info)
+      ) {
+        conflicts.push([a.key, b.key]);
+      }
+    }
+  }
+  res.json({ conflicts });
+});
+
+interface IcsCourseInput {
+  crn?: unknown;
+  subject?: unknown;
+  course_number?: unknown;
+  title?: unknown;
+  meeting_info?: unknown;
+  location?: unknown;
+}
+
+function isIcsCourseInput(value: unknown): value is IcsCourseInput {
+  return typeof value === "object" && value !== null;
+}
+
+// .ics calendar export for one planner semester.
+app.post("/api/planner/ics", (req, res) => {
+  const body = req.body as { term?: unknown; courses?: unknown } | undefined;
+  const term = nonEmptyString(body?.term, 20);
+  const rawCourses = Array.isArray(body?.courses) ? body.courses : [];
+  if (!term || !rawCourses.length) {
+    return res.status(400).json({ error: "term and courses are required" });
+  }
+  const courses = rawCourses.filter(isIcsCourseInput).map((c) => ({
+    crn: typeof c.crn === "string" ? c.crn : null,
+    subject: typeof c.subject === "string" ? c.subject : "",
+    course_number: typeof c.course_number === "string" ? c.course_number : "",
+    title: typeof c.title === "string" ? c.title : null,
+    meeting_info: typeof c.meeting_info === "string" ? c.meeting_info : null,
+    location: typeof c.location === "string" ? c.location : null,
+  }));
+  const ics = buildIcsForCourses(courses, term);
+  res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+  res.setHeader("Content-Disposition", 'attachment; filename="schedule.ics"');
+  res.send(ics);
+});
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Forwards to whoever runs this deployment (CONTACT_TO_EMAIL), via whatever
+// SMTP account is configured (see mailer.ts). No-ops with a clear error if
+// SMTP isn't set up.
+app.post("/api/contact", async (req, res) => {
+  const body = req.body as
+    { name?: unknown; email?: unknown; message?: unknown } | undefined;
+  const name = nonEmptyString(body?.name, 200);
+  const email = nonEmptyString(body?.email, 320);
+  const message = nonEmptyString(body?.message, 5000);
+  if (!name || !email || !EMAIL_RE.test(email) || !message) {
+    return res
+      .status(400)
+      .json({ error: "Name, a valid email, and a message are required." });
+  }
+  if (!mailer.isConfigured()) {
+    return res.status(503).json({
+      error:
+        "This deployment has not set up outgoing email yet -- see README (SMTP_* env vars).",
+    });
+  }
+  try {
+    await mailer.sendMail({
+      to: process.env.CONTACT_TO_EMAIL || process.env.MAIL_FROM || "",
+      subject: `Coast Colleges Class Finder contact form: ${name}`,
+      text: `From: ${name} <${email}>\n\n${message}`,
+      replyTo: email,
+    });
+    res.json({ ok: true });
+  } catch {
+    res.status(502).json({ error: "Failed to send -- try again later." });
+  }
 });
 
 app.use((req, res, next) => {

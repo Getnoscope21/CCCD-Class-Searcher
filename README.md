@@ -19,10 +19,26 @@ data from the district's own public schedule search system.
   "requirements" notes
 - Browse/search professors, with a native student rating system plus a link
   out to a RateMyProfessor search (no scraping of RMP content -- see note below)
-- A Planner tab to sketch out a multi-semester schedule: sign in, add classes
-  to semesters you create, see per-semester and total unit counts. Accounts
-  and planner data live in Supabase (a hosted Postgres + auth service), tied
-  to your login rather than one browser/device
+- A Planner tab to sketch out a multi-semester schedule: sign in, add a
+  specific section to semesters you create, see per-semester and total unit
+  counts. Accounts and planner data live in Supabase (a hosted Postgres +
+  auth service), tied to your login rather than one browser/device
+  - Flags schedule conflicts -- two planned sections in the same semester
+    with an overlapping day/time (parsed from `meeting_info`, see
+    `src/meeting-parser.ts`)
+  - Exports a semester's timed sections as a `.ics` calendar file
+- Star icon on any course card to favorite it (stored in the browser's
+  `localStorage`, no sign-in needed) and a "Favorites only" filter
+- "🔔 Notify me" on any closed/waitlisted section for a one-time email as
+  soon as it opens back up (requires SMTP + a Supabase service role key --
+  see "Seat alerts and the contact form" below)
+- A Contact tab that forwards a name/email/message to whoever runs this
+  deployment (requires SMTP -- see below)
+- Search/filter state (query, college, requirement, modality, units, status,
+  sort, favorites-only) and the active tab are mirrored into the URL, so a
+  search can be bookmarked or shared as a link
+- "Class data updated N minutes ago" in the header, from the most recent
+  scrape timestamp
 
 ## Data source
 
@@ -150,6 +166,37 @@ Setup:
 Without these env vars set, the app still runs fine -- sign-in/Planner UI
 just stays inactive (`/api/config` returns nulls, and the frontend no-ops).
 
+### Seat alerts and the contact form (SMTP)
+
+Both features send email via `src/mailer.ts` (nodemailer). Set these env
+vars wherever the server runs (Render: service -> Environment) to enable it
+-- without them, the Contact tab shows a clear "not set up" error and seat
+alerts silently stay unsent (same graceful-degradation pattern as everything
+else here):
+
+- `SMTP_HOST`, `SMTP_PORT` (587 by default; 465 is treated as implicit TLS),
+  `SMTP_USER`, `SMTP_PASS` -- credentials for any SMTP provider (a free tier
+  from Resend/Brevo/Mailgun/etc, or Gmail with an
+  [app password](https://myaccount.google.com/apppasswords))
+- `MAIL_FROM` -- the From address (defaults to `SMTP_USER`)
+- `CONTACT_TO_EMAIL` -- where contact-form submissions land (defaults to
+  `MAIL_FROM`)
+
+Seat alerts additionally need the scraper job (not the web server) to be
+able to read and clear alert subscriptions, which requires Supabase's
+**service role** key -- unlike the anon key, this bypasses Row Level
+Security, so it must only ever be set as a secret on the scraper's own
+environment (a GitHub Actions secret with the free-hosting setup above),
+never on anything reachable from a browser:
+
+- `SUPABASE_SERVICE_ROLE_KEY` -- Project Settings -> API -> `service_role`
+  secret (not the anon/publishable key)
+
+With the GitHub Actions refresh workflow, add `SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY`, and the SMTP vars above as repo secrets
+(Settings -> Secrets and variables -> Actions) -- `refresh.yml` already wires
+them into the scrape step's environment, so nothing else to configure.
+
 ## On professor ratings
 
 This intentionally does NOT scrape or reproduce RateMyProfessor review
@@ -162,9 +209,22 @@ a native review system your own users fill in (their data, your site).
 ## Known limitations
 
 - `meeting_info` is a flattened text field (day/time/location joined), not
-  structured per-meeting-pattern data -- fine for display, not for e.g.
-  calendar export without more parsing work
+  structured per-meeting-pattern data. `src/meeting-parser.ts` regex-parses
+  it for conflict detection and `.ics` export, which covers the common
+  "M W 9:30am - 10:55am Room 08/24-12/12" shape but skips segments it can't
+  parse (arranged hours, TBA times) -- those just don't get a conflict check
+  or a calendar event
+- `.ics` export assumes the term's 4-digit year applies to every date in its
+  date ranges (fine for a normal fall/spring term, not verified across a
+  term that spans a year boundary)
+- There is no `prerequisites` field in this codebase's `course_catalog`
+  schema (it existed in an earlier version and was dropped during a rewrite),
+  so there's no "is this course's prerequisite scheduled in an earlier
+  semester?" warning in the Planner -- would need prerequisite scraping/
+  storage/UI added back as a separate piece of work
 - Only tested against Fall 2026; term-to-term formatting quirks in Banner's
   output are possible and not all have been hit yet
 - Ratings and course-requirement notes are intentionally lightweight and
   unauthenticated; planner accounts and saved plans use Supabase authentication
+- Favorites are stored per-browser (`localStorage`), not tied to an account
+  like the Planner is -- they don't follow you across devices

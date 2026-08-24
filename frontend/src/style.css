@@ -116,6 +116,11 @@ header h1 {
   font-weight: 500;
   letter-spacing: 0.02em;
 }
+#last-updated {
+  margin-top: 4px;
+  opacity: 0.65;
+  font-size: 0.72rem;
+}
 
 .header-account {
   position: absolute;
@@ -812,6 +817,28 @@ footer {
   justify-content: space-between;
   gap: 8px;
 }
+.course-card-top-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.course-card-favorite {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 1.05rem;
+  line-height: 1;
+  padding: 2px;
+  color: var(--star-empty);
+  flex: none;
+}
+.course-card-favorite.favorited {
+  color: var(--star);
+}
+.course-card-favorite:hover {
+  color: var(--star);
+}
 .course-card-code {
   font-weight: 800;
   font-size: 1.02rem;
@@ -1001,6 +1028,20 @@ footer {
   gap: 8px;
   margin-top: auto;
 }
+.alert-btn {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--waitlist);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.alert-btn:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
 
 .requirements-list {
   margin-bottom: 16px;
@@ -1053,6 +1094,19 @@ footer {
 .add-to-plan {
   position: relative;
   margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.add-to-plan-section {
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 0.85rem;
+  background: var(--card);
+  color: var(--text);
+  max-width: 260px;
 }
 .add-to-plan-menu {
   position: absolute;
@@ -1157,7 +1211,8 @@ footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 .planner-term-title {
   border: none;
@@ -1173,6 +1228,25 @@ footer {
 .planner-term-title:focus {
   outline: none;
   background: var(--accent-soft);
+}
+.planner-term-export {
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 6px 9px;
+  border-radius: 8px;
+  flex: none;
+}
+.planner-term-export:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+.planner-term-export:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 .planner-term-remove {
   border: none;
@@ -1218,6 +1292,18 @@ footer {
 .planner-course-title {
   color: var(--muted);
 }
+.planner-course-meeting {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-top: 2px;
+}
+.planner-warning {
+  color: var(--waitlist);
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-top: 4px;
+  line-height: 1.35;
+}
 .planner-course-remove {
   border: none;
   background: none;
@@ -1234,6 +1320,40 @@ footer {
   font-size: 0.8rem;
   color: var(--muted);
   font-style: italic;
+}
+
+/* ---- Contact tab ---- */
+.contact-form {
+  background: var(--card);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 22px;
+  max-width: 520px;
+}
+.contact-form form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.contact-form textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+  background: var(--bg);
+  color: var(--text);
+}
+.contact-form textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.contact-form .btn-primary {
+  align-self: flex-start;
+  margin-top: 4px;
 }
 
 @media (max-width: 860px) {
@@ -1268,6 +1388,13 @@ footer {
   th,
   td {
     padding: 10px 12px;
+  }
+  .add-to-plan-section {
+    max-width: 100%;
+    flex: 1 1 100%;
+  }
+  .contact-form {
+    padding: 16px;
   }
 }
 
